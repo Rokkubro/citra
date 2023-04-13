@@ -4,10 +4,16 @@
 
 #pragma once
 
+#include <future>
 #include <memory>
+#include <variant>
 #include <boost/serialization/shared_ptr.hpp>
+#include <core/loader/loader.h>
+#include "core/file_sys/archive_backend.h"
+#include "core/file_sys/directory_backend.h"
 #include "core/global.h"
 #include "core/hle/kernel/event.h"
+#include "core/hle/service/boss/spotpass_utils.h"
 #include "core/hle/service/service.h"
 
 namespace Core {
@@ -15,10 +21,10 @@ class System;
 }
 
 namespace Service::BOSS {
-
 class Module final {
 public:
     explicit Module(Core::System& system);
+    Loader::AppLoader& loader;
     ~Module() = default;
 
     class Interface : public ServiceFramework<Interface> {
@@ -962,6 +968,8 @@ public:
         u8 ns_data_new_flag;
         u8 ns_data_new_flag_privileged;
         u8 output_flag;
+
+        Util util;
 
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {

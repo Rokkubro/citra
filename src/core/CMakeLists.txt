@@ -236,6 +236,8 @@ add_library(citra_core STATIC
     hle/service/boss/boss_p.h
     hle/service/boss/boss_u.cpp
     hle/service/boss/boss_u.h
+    hle/service/boss/spotpass_utils.cpp
+    hle/service/boss/spotpass_utils.h
     hle/service/cam/cam.cpp
     hle/service/cam/cam.h
     hle/service/cam/cam_c.cpp

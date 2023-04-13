@@ -353,6 +353,10 @@ void ArchiveManager::RegisterArchiveTypes() {
         std::make_unique<FileSys::ArchiveFactory_ExtSaveData>(sdmc_directory, false);
     RegisterArchiveType(std::move(extsavedata_factory), ArchiveIdCode::ExtSaveData);
 
+    auto bossextsavedata_factory =
+        std::make_unique<FileSys::ArchiveFactory_ExtSaveData>(sdmc_directory, false, true);
+    RegisterArchiveType(std::move(bossextsavedata_factory), ArchiveIdCode::BossExtSaveData);
+
     auto sharedextsavedata_factory =
         std::make_unique<FileSys::ArchiveFactory_ExtSaveData>(nand_directory, true);
     RegisterArchiveType(std::move(sharedextsavedata_factory), ArchiveIdCode::SharedExtSaveData);
