@@ -216,7 +216,7 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(0); /// Actual number of output entries
+    rb.Push<u16>(1); /// Actual number of output entries
     rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
