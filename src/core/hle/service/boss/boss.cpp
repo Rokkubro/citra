@@ -216,7 +216,17 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(1); /// Actual number of output entries
+	
+	u64_le programid = 0;
+    Core::System::GetInstance().GetAppLoader().ReadProgramId(programid);
+	if(programid == 0x0004000000078B00 || programid==0X0004000000100500 || programid==0x0004000000100600 || programid==0x0004000000100700){
+		LOG_WARNING(Service_BOSS,"PLvPWAA detected! Setting number of output entries to 1.");
+		rb.Push<u16>(1); /// Spoof at least one entry for PLvPWAA
+	}
+	else {
+		rb.Push<u16>(0); /// Actual number of output entries
+	}
+	
     rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
