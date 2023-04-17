@@ -963,6 +963,8 @@ public:
         u8 ns_data_new_flag_privileged;
         u8 output_flag;
 
+        u32 GetOutputEntriesCount();
+
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {
             ar& new_arrival_flag;

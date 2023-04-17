@@ -262,6 +262,23 @@ ResultVal<std::unique_ptr<ArchiveBackend>> ArchiveFactory_ExtSaveData::Open(cons
     return MakeResult<std::unique_ptr<ArchiveBackend>>(std::move(archive));
 }
 
+ResultVal<std::unique_ptr<ArchiveBackend>> ArchiveFactory_ExtSaveData::OpenSpotpass(const Path& path,
+                                                                            u64 program_id) {
+    std::string fullpath = GetExtSaveDataPath(mount_point, GetCorrectedPath(path)) + "boss/";
+    if (!FileUtil::Exists(fullpath)) {
+        // TODO(Subv): Verify the archive behavior of SharedExtSaveData compared to ExtSaveData.
+        // ExtSaveData seems to return FS_NotFound (120) when the archive doesn't exist.
+        if (!shared) {
+            return ERR_NOT_FOUND_INVALID_STATE;
+        } else {
+            return ERR_NOT_FORMATTED;
+        }
+    }
+    std::unique_ptr<DelayGenerator> delay_generator = std::make_unique<ExtSaveDataDelayGenerator>();
+    auto archive = std::make_unique<ExtSaveDataArchive>(fullpath, std::move(delay_generator));
+    return MakeResult<std::unique_ptr<ArchiveBackend>>(std::move(archive));
+}
+
 ResultCode ArchiveFactory_ExtSaveData::Format(const Path& path,
                                               const FileSys::ArchiveFormatInfo& format_info,
                                               u64 program_id) {
