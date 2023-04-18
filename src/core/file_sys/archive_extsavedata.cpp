@@ -262,8 +262,8 @@ ResultVal<std::unique_ptr<ArchiveBackend>> ArchiveFactory_ExtSaveData::Open(cons
     return MakeResult<std::unique_ptr<ArchiveBackend>>(std::move(archive));
 }
 
-ResultVal<std::unique_ptr<ArchiveBackend>> ArchiveFactory_ExtSaveData::OpenSpotpass(const Path& path,
-                                                                            u64 program_id) {
+ResultVal<std::unique_ptr<ArchiveBackend>> ArchiveFactory_ExtSaveData::OpenSpotpass(
+    const Path& path, u64 program_id) {
     std::string fullpath = GetExtSaveDataPath(mount_point, GetCorrectedPath(path)) + "boss/";
     if (!FileUtil::Exists(fullpath)) {
         // TODO(Subv): Verify the archive behavior of SharedExtSaveData compared to ExtSaveData.

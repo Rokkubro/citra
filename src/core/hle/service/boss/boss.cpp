@@ -2,18 +2,18 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include "common/file_util.h"
 #include "common/logging/log.h"
+#include "common/string_util.h"
 #include "core/core.h"
+#include "core/file_sys/archive_extsavedata.h"
+#include "core/file_sys/directory_backend.h"
+#include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/result.h"
 #include "core/hle/service/boss/boss.h"
 #include "core/hle/service/boss/boss_p.h"
 #include "core/hle/service/boss/boss_u.h"
-#include "common/file_util.h"
-#include "common/string_util.h"
-#include "core/file_sys/archive_extsavedata.h"
-#include "core/file_sys/file_backend.h"
-#include "core/file_sys/directory_backend.h"
 
 namespace Service::BOSS {
 
@@ -191,48 +191,46 @@ void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
 }
 
-u32 Module::Interface::GetOutputEntriesCount(){
+u32 Module::Interface::GetOutputEntriesCount() {
     u32 entry_count = 0;
 
     u64 extdata_id = 0;
     Core::System::GetInstance().GetAppLoader().ReadExtdataId(extdata_id);
 
-    LOG_DEBUG(Service_BOSS, "Extdata ID={:#018X}",extdata_id);
+    LOG_DEBUG(Service_BOSS, "Extdata ID={:#018X}", extdata_id);
 
     std::string sd_directory{FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir)};
 
     FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(sd_directory, false);
 
-    std::string extdata_directory{FileSys::GetExtDataPathFromId(sd_directory,extdata_id)};
+    std::string extdata_directory{FileSys::GetExtDataPathFromId(sd_directory, extdata_id)};
 
-    LOG_DEBUG(Service_BOSS,"Extdata dir={}", extdata_directory);
+    LOG_DEBUG(Service_BOSS, "Extdata dir={}", extdata_directory);
 
     const u32 high = static_cast<u32>(extdata_id >> 32);
     const u32 low = static_cast<u32>(extdata_id & 0xFFFFFFFF);
 
-    FileSys::Path extdata_path{FileSys::ConstructExtDataBinaryPath(1,high,low)};
+    FileSys::Path extdata_path{FileSys::ConstructExtDataBinaryPath(1, high, low)};
 
     auto archive_result = extdata_archive_factory.OpenSpotpass(extdata_path, 0);
     if (archive_result.Succeeded()) {
-        LOG_DEBUG(Service_BOSS,"Spotpass Extdata opened successfully!");
+        LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
         auto archive = std::move(archive_result).Unwrap();
 
         FileSys::Path dir_path = "/";
 
         auto dir_result = archive->OpenDirectory(dir_path);
         if (dir_result.Succeeded()) {
-            LOG_DEBUG(Service_BOSS,"Spotpass Extdata directory opened successfully!");
+            LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory opened successfully!");
             auto dir = std::move(dir_result).Unwrap();
             FileSys::Entry boss_files[10];
-            entry_count = dir->Read(10,boss_files);
-            LOG_DEBUG(Service_BOSS,"Spotpass Extdata directory contains {} files", entry_count);
+            entry_count = dir->Read(10, boss_files);
+            LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory contains {} files", entry_count);
+        } else {
+            LOG_WARNING(Service_BOSS, "Extdata directory opened unsuccessfully :(");
         }
-        else {
-            LOG_WARNING(Service_BOSS,"Extdata directory opened unsuccessfully :(");
-        }
-    }
-    else {
-        LOG_WARNING(Service_BOSS,"Extdata opening failed");
+    } else {
+        LOG_WARNING(Service_BOSS, "Extdata opening failed");
     }
     return entry_count;
 }
@@ -245,10 +243,14 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    const u32 entries_count = GetOutputEntriesCount();
+    u32 output_entries[std::min(max_entries, entries_count)];
+    buffer.Write(output_entries, 0, sizeof(output_entries));
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(GetOutputEntriesCount()); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
@@ -265,10 +267,14 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    const u32 entries_count = GetOutputEntriesCount();
+    u32 output_entries[std::min(max_entries, entries_count)];
+    buffer.Write(output_entries, 0, sizeof(output_entries));
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(GetOutputEntriesCount()); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
@@ -285,10 +291,14 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    const u32 entries_count = GetOutputEntriesCount();
+    u32 output_entries[std::min(max_entries, entries_count)];
+    buffer.Write(output_entries, 0, sizeof(output_entries));
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(GetOutputEntriesCount()); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
@@ -305,10 +315,14 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    const u32 entries_count = GetOutputEntriesCount();
+    u32 output_entries[std::min(max_entries, entries_count)];
+    buffer.Write(output_entries, 0, sizeof(output_entries));
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u16>(GetOutputEntriesCount()); /// Actual number of output entries
-    rb.Push<u16>(0); /// Last word-index copied to output in the internal NsDataId list.
+    rb.Push<u16>(entries_count); /// Actual number of output entries
+    rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS,
