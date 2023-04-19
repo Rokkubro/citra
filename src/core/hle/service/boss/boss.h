@@ -16,6 +16,14 @@ class System;
 
 namespace Service::BOSS {
 
+struct NsDataEntry {
+    std::string filename;
+    u64 program_id;
+    u32 datatype;
+    u32 payload_size;
+    u32 ns_data_id;
+};
+
 class Module final {
 public:
     explicit Module(Core::System& system);
@@ -963,7 +971,10 @@ public:
         u8 ns_data_new_flag_privileged;
         u8 output_flag;
 
-        u32 GetOutputEntriesCount();
+        auto GetBossDataDir();
+        std::vector<NsDataEntry> GetNsDataEntries(u32 max_entries);
+        u32 GetBossExtDataFiles(u32 files_to_read, auto* boss_files);
+        u32 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
 
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {
