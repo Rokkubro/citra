@@ -671,6 +671,19 @@ void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
 }
 
+bool Module::Interface::GetNsDataEntryFromID(u32 ns_data_id, auto* entry) {
+    std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
+    for (u32 i = 0; i < ns_data.size(); i++) {
+        NsDataEntry tmp_entry = ns_data[i];
+        if (tmp_entry.header.ns_data_id == ns_data_id) {
+            *entry = tmp_entry;
+            return true;
+        }
+    }
+    LOG_WARNING(Service_BOSS, "Could not find NsData with ID {:#010X}", ns_data_id);
+    return false;
+}
+
 void Module::Interface::DeleteNsData(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x26, 1, 0);
     const u32 ns_data_id = rp.Pop<u32>();
@@ -688,8 +701,40 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    // This is the error code for NsDataID not found
+    u32 result = 0xC8A0F843;
+    u32 zero = 0;
+    NsDataEntry entry;
+    bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
+    if (entry_success) {
+
+        switch (type) {
+        case 0x03:
+            if (size != 4) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&entry.header.payload_size, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out payload size {}", entry.header.payload_size);
+            break;
+        case 0x04:
+            if (size != 4) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&zero, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out unknown {}", zero);
+            break;
+        default:
+            LOG_WARNING(Service_BOSS, "Unknown header info type {}", type);
+            result = 0;
+        }
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
+    rb.Push(result);
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, type={:#04X}, size={:#010X}",
@@ -703,10 +748,53 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
+
+    // This is the error code for NsDataID not found
+    u32 result = 0xC8A0F843;
+    u32 read_size = 0;
+    FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
+    FileSys::Path boss_path{GetBossDataDir()};
+    auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
+    NsDataEntry entry;
+    bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
+    if (!archive_result.Succeeded() || !entry_success) {
+        LOG_WARNING(Service_BOSS, "Opening Spotpass Extdata failed.");
+    } else {
+        LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
+        auto boss_archive = std::move(archive_result).Unwrap().get();
+        FileSys::Path file_path = ("/" + entry.filename).c_str();
+        FileSys::Mode mode{};
+        mode.read_flag.Assign(1);
+        auto file_result = boss_archive->OpenFile(file_path, mode);
+
+        if (!file_result.Succeeded()) {
+            LOG_WARNING(Service_BOSS, "Opening Spotpass file failed.");
+        } else {
+            auto file = std::move(file_result).Unwrap();
+            LOG_DEBUG(Service_BOSS, "Opening Spotpass file succeeded!");
+            if (entry.header.payload_size < size + offset) {
+                LOG_WARNING(Service_BOSS,
+                            "Request to read {:#010X} bytes at offset {:#010X}, payload "
+                            "length is {:#010X}",
+                            size, offset, entry.header.payload_size);
+            } else {
+                std::vector<u8> ns_data_array(size);
+                file->Read(boss_header_length + offset, size, ns_data_array.data());
+                buffer.Write(ns_data_array.data(), 0, size);
+                result = 0;
+                read_size = size;
+                LOG_DEBUG(Service_BOSS, "Read {:#010X} bytes from file {}", read_size,
+                          entry.filename);
+            }
+        }
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.Push<u32>(size); /// Should be actual read size
-    rb.Push<u32>(0);    /// unknown
+    rb.Push(result);
+    rb.Push<u32>(read_size); /// Should be actual read size
+    rb.Push<u32>(0);         /// unknown
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, offset={:#018X}, size={:#010X}",
@@ -738,38 +826,47 @@ void Module::Interface::GetNsDataAdditionalInfo(Kernel::HLERequestContext& ctx) 
 
 void Module::Interface::SetNsDataNewFlag(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x2B, 2, 0);
-    const u32 unk_param1 = rp.Pop<u32>();
+    const u32 ns_data_id = rp.Pop<u32>();
     ns_data_new_flag = rp.Pop<u8>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}, ns_data_new_flag={:#04X}", unk_param1,
+    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, ns_data_new_flag={:#04X}", ns_data_id,
                 ns_data_new_flag);
 }
 
 void Module::Interface::GetNsDataNewFlag(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x2C, 1, 0);
-    const u32 unk_param1 = rp.Pop<u32>();
+    const u32 ns_data_id = rp.Pop<u32>();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 0);
     rb.Push(RESULT_SUCCESS);
     rb.Push<u8>(ns_data_new_flag);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}, ns_data_new_flag={:#04X}", unk_param1,
+    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, ns_data_new_flag={:#04X}", ns_data_id,
                 ns_data_new_flag);
 }
 
 void Module::Interface::GetNsDataLastUpdate(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x2D, 1, 0);
-    const u32 unk_param1 = rp.Pop<u32>();
+    const u32 ns_data_id = rp.Pop<u32>();
+
+    u32 last_update = 0;
+
+    NsDataEntry entry;
+    bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
+    if (entry_success) {
+        last_update = entry.header.download_date;
+        LOG_DEBUG(Service_BOSS, "Last update: {}", last_update);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 0);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u32>(0); // stub 0 (32bit value)
-    rb.Push<u32>(0); // stub 0 (32bit value)
+    rb.Push<u32>(0);           // stub 0 (32bit value)
+    rb.Push<u32>(last_update); // stub 0 (32bit value)
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) unk_param1={:#010X}", unk_param1);
+    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}", ns_data_id);
 }
 
 void Module::Interface::GetErrorCode(Kernel::HLERequestContext& ctx) {

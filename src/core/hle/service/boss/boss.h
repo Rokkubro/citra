@@ -995,6 +995,7 @@ public:
         std::vector<NsDataEntry> GetNsDataEntries(u32 max_entries);
         u32 GetBossExtDataFiles(u32 files_to_read, auto* boss_files);
         u32 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
+        bool GetNsDataEntryFromID(u32 ns_data_id, auto* entry);
 
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {
