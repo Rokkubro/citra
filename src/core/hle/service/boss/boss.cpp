@@ -190,6 +190,7 @@ void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
 }
+
 auto Module::Interface::GetBossDataDir() {
     u64 extdata_id = 0;
     Core::System::GetInstance().GetAppLoader().ReadExtdataId(extdata_id);
@@ -199,113 +200,94 @@ auto Module::Interface::GetBossDataDir() {
 
     return FileSys::ConstructExtDataBinaryPath(1, high, low);
 }
+
 std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
     std::vector<NsDataEntry> ns_data;
-    u32 entry_count = 0;
-    u32 files_to_read = 100;
-    FileSys::Entry boss_files[100];
+    const u32 files_to_read = 100;
+    std::array<FileSys::Entry, 100> boss_files;
 
-    entry_count = GetBossExtDataFiles(files_to_read, boss_files);
+    u32 entry_count = GetBossExtDataFiles(files_to_read, boss_files.data());
 
     if (entry_count > max_entries) {
         LOG_WARNING(Service_BOSS, "Number of output entries has exceeded maximum");
         entry_count = max_entries;
     }
 
+    FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
+    FileSys::Path boss_path{GetBossDataDir()};
+    auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
+
+    if (!archive_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Extdata opening failed");
+        return ns_data;
+    }
+    LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
+    auto boss_archive = std::move(archive_result).Unwrap().get();
+
     for (u32 i = 0; i < entry_count; i++) {
-        if (boss_files[i].is_directory || boss_files[i].file_size < 52) {
+        if (boss_files[i].is_directory || boss_files[i].file_size < boss_header_length) {
             LOG_WARNING(Service_BOSS, "Directory or too-short file in spotpass extdata");
             continue;
         }
 
         NsDataEntry entry;
         std::string filename{Common::UTF16ToUTF8(boss_files[i].filename)};
-        filename = "/" + filename;
-        FileSys::Path file_path = filename.c_str();
+        FileSys::Path file_path = ("/" + filename).c_str();
         LOG_DEBUG(Service_BOSS, "Spotpass filename={}", filename);
         entry.filename = filename;
 
         FileSys::Mode mode{};
         mode.read_flag.Assign(1);
-        FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
-            FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
-        FileSys::Path boss_path{GetBossDataDir()};
-        auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
 
-        if (archive_result.Succeeded()) {
-            LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
-            auto boss_archive = std::move(archive_result).Unwrap().get();
-            auto file_result = boss_archive->OpenFile(file_path, mode);
+        auto file_result = boss_archive->OpenFile(file_path, mode);
 
-            if (file_result.Succeeded()) {
-                auto file = std::move(file_result).Unwrap();
-                LOG_DEBUG(Service_BOSS, "Opening Spotpass file succeeded!");
-
-                // File header info from
-                // https://www.3dbrew.org/wiki/SpotPass#Payload_Content_Header It looks like the
-                // non-shared spotpass data on sd does not include the SHA hash and its
-                // signature in the header So the total header is only 52 bytes long
-                u8 header_length[1];
-                file->Read(0, 1, header_length);
-                if (header_length[0] != 0x18) {
-                    LOG_WARNING(Service_BOSS, "Incorrect header length or non-spotpass file");
-                    continue;
-                }
-
-                u64 program_id = 0;
-                Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
-                u8 spotpass_program_id_array[8];
-                u64 spotpass_program_id = 0;
-                file->Read(0x18, 8, spotpass_program_id_array);
-                std::memcpy(&spotpass_program_id, spotpass_program_id_array, 8);
-                spotpass_program_id = Common::swap64(spotpass_program_id);
-                if (spotpass_program_id != program_id) {
-                    LOG_WARNING(Service_BOSS,
-                                "Mismatched program ID in spotpass data. Was expecting "
-                                "{:#018X}, found {:#018X}",
-                                program_id, spotpass_program_id);
-                    continue;
-                }
-                entry.program_id = program_id;
-
-                u8 ns_datatype_array[4];
-                u32 ns_datatype = 0;
-                file->Read(0x24, 4, ns_datatype_array);
-                std::memcpy(&ns_datatype, ns_datatype_array, 4);
-                ns_datatype = Common::swap32(ns_datatype);
-                LOG_DEBUG(Service_BOSS, "Datatype is {:#010X}", ns_datatype);
-                entry.datatype = ns_datatype;
-
-                u8 ns_data_size_array[4];
-                u32 ns_data_size = 0;
-                file->Read(0x28, 4, ns_data_size_array);
-                std::memcpy(&ns_data_size, ns_data_size_array, 4);
-                ns_data_size = Common::swap32(ns_data_size);
-                // Check the payload size is correct, excluding header
-                if (ns_data_size != boss_files[i].file_size - 0x34) {
-                    LOG_WARNING(Service_BOSS,
-                                "Mismatched file size, was expecting {:#010X}, found {:#010X}",
-                                ns_data_size, boss_files[i].file_size - 0x34);
-                    continue;
-                }
-                LOG_DEBUG(Service_BOSS, "Payload size is {:#010X}", ns_data_size);
-                entry.payload_size = ns_data_size;
-
-                u8 ns_data_id_array[4];
-                u32 ns_data_id = 0;
-                file->Read(0x2C, 4, ns_data_id_array);
-                std::memcpy(&ns_data_id, ns_data_id_array, 4);
-                ns_data_id = Common::swap32(ns_data_id);
-                LOG_DEBUG(Service_BOSS, "NsDataID is {:#010X}", ns_data_id);
-                entry.ns_data_id = ns_data_id;
-
-                ns_data.push_back(entry);
-            } else {
-                LOG_WARNING(Service_BOSS, "Opening Spotpass file failed.");
-            }
-        } else {
-            LOG_WARNING(Service_BOSS, "Extdata opening failed");
+        if (!file_result.Succeeded()) {
+            LOG_WARNING(Service_BOSS, "Opening Spotpass file failed.");
+            continue;
         }
+        auto file = std::move(file_result).Unwrap();
+        LOG_DEBUG(Service_BOSS, "Opening Spotpass file succeeded!");
+        file->Read(0, boss_header_length, (u8*)&entry.header);
+        // Extdata header should have size 0x18:
+        // https://www.3dbrew.org/wiki/SpotPass#Payload_Content_Header
+        if (entry.header.header_length != 0x18) {
+            LOG_WARNING(
+                Service_BOSS,
+                "Incorrect header length or non-spotpass file; expected 0x18, found {:#010X}",
+                entry.header.header_length);
+            continue;
+        }
+#if COMMON_LITTLE_ENDIAN
+        entry.header.unknown = Common::swap32(entry.header.unknown);
+        entry.header.download_date = Common::swap32(entry.header.download_date);
+        entry.header.program_id = Common::swap64(entry.header.program_id);
+        entry.header.datatype = Common::swap32(entry.header.datatype);
+        entry.header.payload_size = Common::swap32(entry.header.payload_size);
+        entry.header.ns_data_id = Common::swap32(entry.header.ns_data_id);
+        entry.header.version = Common::swap32(entry.header.version);
+#endif
+        u64 program_id = 0;
+        Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
+        if (entry.header.program_id != program_id) {
+            LOG_WARNING(Service_BOSS,
+                        "Mismatched program ID in spotpass data. Was expecting "
+                        "{:#018X}, found {:#018X}",
+                        program_id, entry.header.program_id);
+            continue;
+        }
+        LOG_DEBUG(Service_BOSS, "Datatype is {:#010X}", entry.header.datatype);
+        // Check the payload size is correct, excluding header
+        if (entry.header.payload_size != boss_files[i].file_size - 0x34) {
+            LOG_WARNING(Service_BOSS,
+                        "Mismatched file size, was expecting {:#010X}, found {:#010X}",
+                        entry.header.payload_size, boss_files[i].file_size - 0x34);
+            continue;
+        }
+        LOG_DEBUG(Service_BOSS, "Payload size is {:#010X}", entry.header.payload_size);
+        LOG_DEBUG(Service_BOSS, "NsDataID is {:#010X}", entry.header.ns_data_id);
+
+        ns_data.push_back(entry);
     }
     return ns_data;
 }
@@ -319,37 +301,48 @@ u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
     FileSys::Path boss_path{GetBossDataDir()};
 
     auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
-    if (archive_result.Succeeded()) {
-        LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
-        auto boss_archive = std::move(archive_result).Unwrap().get();
-
-        FileSys::Path dir_path = "/";
-
-        auto dir_result = boss_archive->OpenDirectory(dir_path);
-        if (dir_result.Succeeded()) {
-            LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory opened successfully!");
-            auto dir = std::move(dir_result).Unwrap();
-            entry_count = dir->Read(files_to_read, files);
-            LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory contains {} files", entry_count);
-        } else {
-            LOG_WARNING(Service_BOSS, "Extdata directory opened unsuccessfully :(");
-        }
-    } else {
+    if (!archive_result.Succeeded()) {
         LOG_WARNING(Service_BOSS, "Extdata opening failed");
+        return entry_count;
     }
+    LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
+    auto boss_archive = std::move(archive_result).Unwrap().get();
+
+    FileSys::Path dir_path = "/";
+
+    auto dir_result = boss_archive->OpenDirectory(dir_path);
+    if (!dir_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Extdata directory opening failed");
+        return entry_count;
+    }
+    LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory opened successfully!");
+    auto dir = std::move(dir_result).Unwrap();
+    entry_count = dir->Read(files_to_read, files);
+    LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory contains {} files", entry_count);
     return entry_count;
 }
 
 u32 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries(max_entries);
     std::vector<u32> output_entries;
-    u32 entry_count = ns_data.size();
-    for (u32 i = 0; i < entry_count; i++) {
-        output_entries.push_back(ns_data[i].ns_data_id);
+    for (u32 i = 0; i < ns_data.size(); i++) {
+        const u16 datatype_high = static_cast<u16>(ns_data[i].header.datatype >> 16);
+        const u16 datatype_low = static_cast<u16>(ns_data[i].header.datatype & 0xFFFF);
+        const u16 filter_high = static_cast<u16>(filter >> 16);
+        const u16 filter_low = static_cast<u16>(filter & 0xFFFF);
+        if (filter != 0xFFFF &&
+            (filter_high != datatype_high || (filter_low & datatype_low) == 0)) {
+            LOG_DEBUG(
+                Service_BOSS,
+                "Filtered out NsDataID {:#010X}; failed filter {:#010X} with datatype {:#010X}",
+                ns_data[i].header.ns_data_id, filter, ns_data[i].header.datatype);
+            continue;
+        }
+        output_entries.push_back(ns_data[i].header.ns_data_id);
     }
-    buffer->Write(&output_entries[0], 0, sizeof(u32) * entry_count);
-    LOG_DEBUG(Service_BOSS, "{} usable entries returned", entry_count);
-    return entry_count;
+    buffer->Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
+    LOG_DEBUG(Service_BOSS, "{} usable entries returned", output_entries.size());
+    return output_entries.size();
 }
 
 void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
@@ -710,59 +703,10 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
-
-    // This is the error code for NsDataID not found
-    u32 result = 0xC8A0F843;
-    u32 read_size = 0;
-
-    for (u32 i = 0; i < ns_data.size(); i++) {
-        NsDataEntry entry = ns_data[i];
-        if (entry.ns_data_id == ns_data_id) {
-            FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
-                FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
-            FileSys::Path boss_path{GetBossDataDir()};
-            auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
-
-            if (archive_result.Succeeded()) {
-                LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
-                auto boss_archive = std::move(archive_result).Unwrap().get();
-                FileSys::Path file_path = entry.filename.c_str();
-                FileSys::Mode mode{};
-                mode.read_flag.Assign(1);
-                auto file_result = boss_archive->OpenFile(file_path, mode);
-
-                if (file_result.Succeeded()) {
-                    auto file = std::move(file_result).Unwrap();
-                    LOG_DEBUG(Service_BOSS, "Opening Spotpass file succeeded!");
-                    if (entry.payload_size < size + offset) {
-                        LOG_WARNING(Service_BOSS,
-                                    "Request to read {:#010X} bytes at offset {:#010X}, payload "
-                                    "length is {:#010X}",
-                                    size, offset, entry.payload_size);
-                        continue;
-                    }
-                    u8* ns_data_array = new u8[size];
-                    file->Read(0x34 + offset, size, ns_data_array);
-                    buffer.Write(ns_data_array, 0, size);
-                    delete[] ns_data_array;
-                    result = 0;
-                    read_size = size;
-                    LOG_DEBUG(Service_BOSS, "Read {:#010X} bytes from file {}", read_size,
-                              entry.filename);
-                } else {
-                    LOG_WARNING(Service_BOSS, "Opening Spotpass file failed.");
-                }
-            } else {
-                LOG_WARNING(Service_BOSS, "Opening Spotpass Extdata failed.");
-            }
-        }
-    }
-
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
-    rb.Push(result);
-    rb.Push<u32>(read_size); /// Should be actual read size
-    rb.Push<u32>(0);         /// unknown
+    rb.Push(RESULT_SUCCESS);
+    rb.Push<u32>(size); /// Should be actual read size
+    rb.Push<u32>(0);    /// unknown
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, offset={:#018X}, size={:#010X}",

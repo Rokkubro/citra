@@ -15,13 +15,33 @@ class System;
 }
 
 namespace Service::BOSS {
+// File header info from
+// https://www.3dbrew.org/wiki/SpotPass#Payload_Content_Header
+// So the total header is only 52 bytes long
 
-struct NsDataEntry {
-    std::string filename;
+const u64 boss_header_length = 0x34;
+// 52 bytes doesn't align nicely into 8-byte words
+#pragma pack(push, 4)
+struct BossHeader {
+    u8 header_length;
+    u8 zero1[11];
+    u32 unknown;
+    u32 download_date;
+    u8 zero2[4];
     u64 program_id;
+    u8 zero3[4];
     u32 datatype;
     u32 payload_size;
     u32 ns_data_id;
+    u32 version;
+};
+#pragma pack(pop)
+
+static_assert(sizeof(BossHeader) == 0x34, "BossHeaderstruct isn't exactly 0x34 bytes long!");
+
+struct NsDataEntry {
+    std::string filename;
+    BossHeader header;
 };
 
 class Module final {
