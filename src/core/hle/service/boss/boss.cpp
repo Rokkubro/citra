@@ -342,7 +342,7 @@ u32 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
     }
     buffer->Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
     LOG_DEBUG(Service_BOSS, "{} usable entries returned", output_entries.size());
-    return static_cast<u32>output_entries.size();
+    return static_cast<u32> output_entries.size();
 }
 
 void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
