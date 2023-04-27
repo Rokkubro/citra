@@ -136,19 +136,13 @@ void Config::ReadValues() {
     ReadSetting("Renderer", Settings::values.graphics_api);
     ReadSetting("Renderer", Settings::values.use_gles);
     ReadSetting("Renderer", Settings::values.use_hw_shader);
-#ifdef __APPLE__
-    // Separable shader is broken on macos with Intel GPU thanks to poor drivers.
-    // We still want to provide this option for test/development purposes, but disable it by
-    // default.
-    ReadSetting("Renderer", Settings::values.separable_shader);
-#endif
     ReadSetting("Renderer", Settings::values.shaders_accurate_mul);
     ReadSetting("Renderer", Settings::values.use_shader_jit);
     ReadSetting("Renderer", Settings::values.resolution_factor);
     ReadSetting("Renderer", Settings::values.use_disk_shader_cache);
     ReadSetting("Renderer", Settings::values.frame_limit);
     ReadSetting("Renderer", Settings::values.use_vsync_new);
-    ReadSetting("Renderer", Settings::values.texture_filter_name);
+    ReadSetting("Renderer", Settings::values.texture_filter);
 
     ReadSetting("Renderer", Settings::values.mono_render_option);
     ReadSetting("Renderer", Settings::values.render_3d);

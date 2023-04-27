@@ -70,6 +70,15 @@ enum class AudioEmulation : u32 {
     LLEMultithreaded = 2,
 };
 
+enum class TextureFilter : u32 {
+    None = 0,
+    Anime4K = 1,
+    Bicubic = 2,
+    NearestNeighbor = 3,
+    ScaleForce = 4,
+    xBRZ = 5,
+};
+
 namespace NativeButton {
 
 enum Values {
@@ -424,14 +433,13 @@ struct Values {
     Setting<bool> use_gles{false, "use_gles"};
     Setting<bool> renderer_debug{false, "renderer_debug"};
     SwitchableSetting<bool> use_hw_shader{true, "use_hw_shader"};
-    SwitchableSetting<bool> separable_shader{false, "use_separable_shader"};
     SwitchableSetting<bool> use_disk_shader_cache{true, "use_disk_shader_cache"};
     SwitchableSetting<bool> shaders_accurate_mul{true, "shaders_accurate_mul"};
     SwitchableSetting<bool> use_vsync_new{true, "use_vsync_new"};
     Setting<bool> use_shader_jit{true, "use_shader_jit"};
     SwitchableSetting<u32, true> resolution_factor{1, 0, 10, "resolution_factor"};
     SwitchableSetting<u16, true> frame_limit{100, 0, 1000, "frame_limit"};
-    SwitchableSetting<std::string> texture_filter_name{"none", "texture_filter_name"};
+    SwitchableSetting<TextureFilter> texture_filter{TextureFilter::None, "texture_filter"};
 
     SwitchableSetting<LayoutOption> layout_option{LayoutOption::Default, "layout_option"};
     SwitchableSetting<bool> swap_screen{false, "swap_screen"};
