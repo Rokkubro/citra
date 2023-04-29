@@ -213,10 +213,10 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
         entry_count = max_entries;
     }
 
-    FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
-        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
+    FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
     FileSys::Path boss_path{GetBossDataDir()};
-    auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
+    auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
 
     if (!archive_result.Succeeded()) {
         LOG_WARNING(Service_BOSS, "Extdata opening failed");
@@ -295,12 +295,12 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
 u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
     u32 entry_count = 0;
 
-    FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
-        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
+    FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
 
     FileSys::Path boss_path{GetBossDataDir()};
 
-    auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
+    auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
     if (!archive_result.Succeeded()) {
         LOG_WARNING(Service_BOSS, "Extdata opening failed");
         return entry_count;
@@ -342,7 +342,7 @@ u32 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
     }
     buffer->Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
     LOG_DEBUG(Service_BOSS, "{} usable entries returned", output_entries.size());
-    return output_entries.size();
+    return static_cast<u32>(output_entries.size());
 }
 
 void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
@@ -753,10 +753,10 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     // This is the error code for NsDataID not found
     u32 result = 0xC8A0F843;
     u32 read_size = 0;
-    FileSys::ArchiveFactory_ExtSaveData extdata_archive_factory(
-        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false);
+    FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
     FileSys::Path boss_path{GetBossDataDir()};
-    auto archive_result = extdata_archive_factory.OpenSpotpass(boss_path, 0);
+    auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
     NsDataEntry entry;
     bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
     if (!archive_result.Succeeded() || !entry_success) {

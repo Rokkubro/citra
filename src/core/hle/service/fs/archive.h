@@ -37,6 +37,7 @@ enum class ArchiveIdCode : u32 {
     SaveData = 0x00000004,
     ExtSaveData = 0x00000006,
     SharedExtSaveData = 0x00000007,
+    BossExtSaveData = 0x12345678,
     SystemSaveData = 0x00000008,
     SDMC = 0x00000009,
     SDMCWriteOnly = 0x0000000A,
