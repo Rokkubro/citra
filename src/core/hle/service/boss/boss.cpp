@@ -528,7 +528,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(result);
-    rb.Push<u32>(size); /// Should be actual read size //Not true? For property 0x36 FEA will not
+    rb.Push<u32>(size); /// Should be actual read size; However, for property 0x36 FEA will not
                         /// attempt to read from the buffer unless the size returned is 0x400,
                         /// regardless of how many title ids are returned
     rb.PushMappedBuffer(buffer);
