@@ -44,6 +44,8 @@ struct NsDataEntry {
     BossHeader header;
 };
 
+const u8 task_id_size = 8;
+
 class Module final {
 public:
     explicit Module(Core::System& system);
@@ -990,6 +992,7 @@ public:
         u8 ns_data_new_flag;
         u8 ns_data_new_flag_privileged;
         u8 output_flag;
+        std::vector<std::string> task_id_list;
 
         auto GetBossDataDir();
         std::vector<NsDataEntry> GetNsDataEntries(u32 max_entries);

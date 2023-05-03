@@ -136,6 +136,11 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
+    std::string task_id(size, 0);
+    buffer.Read(task_id.data(), 0, size);
+    task_id_list.push_back(task_id);
+    LOG_DEBUG(Service_BOSS, "read task id {}", task_id);
+
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
@@ -330,7 +335,7 @@ u32 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
         const u16 datatype_low = static_cast<u16>(ns_data[i].header.datatype & 0xFFFF);
         const u16 filter_high = static_cast<u16>(filter >> 16);
         const u16 filter_low = static_cast<u16>(filter & 0xFFFF);
-        if (filter != 0xFFFF &&
+        if (filter != 0xFFFFFFFF &&
             (filter_high != datatype_high || (filter_low & datatype_low) == 0)) {
             LOG_DEBUG(
                 Service_BOSS,
@@ -438,6 +443,20 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     const u16 property_id = rp.Pop<u16>();
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
+    if (size == 1) {
+        u8 property = 0;
+        buffer.Read(&property, 0, size);
+        LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#06X}", property_id, property);
+    } else if (size == 4) {
+        u32 property = 0;
+        buffer.Read(&property, 0, size);
+        LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#010X}", property_id, property);
+    } else {
+        std::string property(size, 0);
+        buffer.Read(property.data(), 0, size);
+
+        LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {}", property_id, property);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
@@ -463,9 +482,55 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    u32 result = 1;
+    // string length of 7 is expected.
+    //  std::string dummy = "Quartz0";
+    //  std::string dummy2 = "Quartz1";
+    u16 task_id_list_size = 0;
+    u16 num_returned_task_ids = 0;
+
+    switch (property_id) {
+    case 0x35:
+        if (size != 0x2) {
+            LOG_WARNING(Service_BOSS, "Invalid size {} for property id {}", size, property_id);
+            break;
+        }
+        task_id_list_size = task_id_list.size();
+        buffer.Write(&task_id_list_size, 0, size);
+        result = 0;
+        LOG_DEBUG(Service_BOSS, "Wrote out total_tasks {}", task_id_list_size);
+        break;
+    case 0x36:
+        if (size != 0x400) {
+            LOG_WARNING(Service_BOSS, "Invalid size {} for property id {}", size, property_id);
+            break;
+        }
+        // dummy.copy(task_id_buffer.data(),8,0);
+        // dummy2.copy(task_id_buffer.data()+8,8,0);
+        // buffer.Write(task_id_buffer.data(),0,size);
+        for (size_t i = 0; i < task_id_list.size(); i++) {
+            if (task_id_list[i].size() > task_id_size || i * task_id_size + task_id_size > 0x400) {
+                LOG_WARNING(Service_BOSS, "task id {} too long or would write past buffer",
+                            task_id_list[i]);
+            } else {
+                buffer.Write(task_id_list[i].data(), i * task_id_size, task_id_size);
+                num_returned_task_ids++;
+                LOG_DEBUG(Service_BOSS, "wrote task id {}", task_id_list[i]);
+            }
+        }
+        LOG_DEBUG(Service_BOSS, "wrote out {} task ids", num_returned_task_ids);
+        result = 0;
+        break;
+    default:
+        LOG_WARNING(Service_BOSS, "Unknown property id {}", property_id);
+        result = 0;
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.Push<u32>(size); /// Should be actual read size
+    rb.Push(result);
+    rb.Push<u32>(size); /// Should be actual read size //Not true? For property 0x36 FEA will not
+                        /// attempt to read from the buffer unless the size returned is 0x400,
+                        /// regardless of how many title ids are returned
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
@@ -709,6 +774,33 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     if (entry_success) {
 
         switch (type) {
+        case 0x00:
+            if (size != 8) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&entry.header.program_id, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out program id {}", entry.header.program_id);
+            break;
+        case 0x01:
+            if (size != 4) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&zero, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out unknown as zero");
+            break;
+        case 0x02:
+            if (size != 4) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&entry.header.datatype, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out content datatype {}", entry.header.datatype);
+            break;
         case 0x03:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
@@ -723,9 +815,38 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&zero, 0, size);
+            buffer.Write(&entry.header.ns_data_id, 0, size);
             result = 0;
-            LOG_DEBUG(Service_BOSS, "Wrote out unknown {}", zero);
+            LOG_DEBUG(Service_BOSS, "Wrote out NsDataID {}", entry.header.ns_data_id);
+            break;
+        case 0x05:
+            if (size != 4) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&entry.header.version, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out version {}", entry.header.version);
+            break;
+        case 0x06:
+            if (size != 0x20) {
+                LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
+                break;
+            }
+            buffer.Write(&entry.header.program_id, 0x0, 8);
+            buffer.Write(&zero, 0x8, 4);
+            buffer.Write(&entry.header.datatype, 0xC, 4);
+            buffer.Write(&entry.header.payload_size, 0x10, 4);
+            buffer.Write(&entry.header.ns_data_id, 0x14, 4);
+            buffer.Write(&entry.header.version, 0x18, 4);
+            buffer.Write(&zero, 0x1C, 4);
+            result = 0;
+            LOG_DEBUG(
+                Service_BOSS,
+                "Wrote out unknown with program id {:#018X}, unknown zero, datatype {:#010X}, "
+                "payload size {:#010X}, NsDataID {:#010X}, version {:#010X} and unknown zero",
+                entry.header.program_id, entry.header.datatype, entry.header.payload_size,
+                entry.header.ns_data_id, entry.header.version);
             break;
         default:
             LOG_WARNING(Service_BOSS, "Unknown header info type {}", type);
@@ -963,18 +1084,22 @@ void Module::Interface::GetTaskProperty0(Kernel::HLERequestContext& ctx) {
 }
 
 void Module::Interface::RegisterImmediateTask(Kernel::HLERequestContext& ctx) {
-    IPC::RequestParser rp(ctx, 0x35, 3, 2);
-    const u32 size = rp.Pop<u32>();
-    const u8 unk_param2 = rp.Pop<u8>();
-    const u8 unk_param3 = rp.Pop<u8>();
-    auto& buffer = rp.PopMappedBuffer();
+    /*     IPC::RequestParser rp(ctx, 0x35, 3, 2);
+        const u32 size = rp.Pop<u32>();
+        const u8 unk_param2 = rp.Pop<u8>();
+        const u8 unk_param3 = rp.Pop<u8>();
+        auto& buffer = rp.PopMappedBuffer();
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.PushMappedBuffer(buffer);
+        IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+        rb.Push(RESULT_SUCCESS);
+        rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
-                size, unk_param2, unk_param3);
+        LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
+                    size, unk_param2, unk_param3); */
+
+    LOG_WARNING(Service_BOSS, "RegisterImmediateTask called");
+    // These seem to do the same thing...
+    RegisterTask(ctx);
 }
 
 void Module::Interface::SetTaskQuery(Kernel::HLERequestContext& ctx) {
