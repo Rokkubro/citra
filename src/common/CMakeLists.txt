@@ -42,7 +42,7 @@ add_custom_command(OUTPUT scm_rev.cpp
       "${CMAKE_SOURCE_DIR}/CMakeModules/GenerateSCMRev.cmake"
 )
 
-add_library(common STATIC
+add_library(citra_common STATIC
     aarch64/cpu_detect.cpp
     aarch64/cpu_detect.h
     alignment.h
@@ -65,6 +65,8 @@ add_library(common STATIC
     common_precompiled_headers.h
     common_types.h
     construct.h
+    error.cpp
+    error.h
     file_util.cpp
     file_util.h
     hash.h
@@ -89,6 +91,7 @@ add_library(common STATIC
     misc.cpp
     param_package.cpp
     param_package.h
+    polyfill_thread.h
     precompiled_headers.h
     quaternion.h
     ring_buffer.h
@@ -113,9 +116,11 @@ add_library(common STATIC
     thread.cpp
     thread.h
     thread_queue_list.h
+    thread_worker.h
     threadsafe_queue.h
     timer.cpp
     timer.h
+    unique_function.h
     vector_math.h
     web_result.h
     x64/cpu_detect.cpp
@@ -126,16 +131,35 @@ add_library(common STATIC
     zstd_compression.h
 )
 
-create_target_directory_groups(common)
+if (MSVC)
+  target_compile_definitions(citra_common PRIVATE
+    # The standard library doesn't provide any replacement for codecvt yet
+    # so we can disable this deprecation warning for the time being.
+    _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
+  )
+  target_compile_options(citra_common PRIVATE
+    /W4
 
-target_link_libraries(common PUBLIC fmt::fmt microprofile Boost::boost Boost::serialization Boost::iostreams)
-target_link_libraries(common PRIVATE libzstd_static)
-set_target_properties(common PROPERTIES INTERPROCEDURAL_OPTIMIZATION ${ENABLE_LTO})
+    /we4242 # 'identifier': conversion from 'type1' to 'type2', possible loss of data
+    /we4254 # 'operator': conversion from 'type1:field_bits' to 'type2:field_bits', possible loss of data
+    /we4800 # Implicit conversion from 'type' to bool. Possible information loss
+  )
+else()
+  target_compile_options(citra_common PRIVATE
+    $<$<CXX_COMPILER_ID:Clang>:-fsized-deallocation>
+  )
+endif()
+
+create_target_directory_groups(citra_common)
+
+target_link_libraries(citra_common PUBLIC fmt::fmt microprofile Boost::boost Boost::serialization Boost::iostreams)
+target_link_libraries(citra_common PRIVATE libzstd_static)
+set_target_properties(citra_common PROPERTIES INTERPROCEDURAL_OPTIMIZATION ${ENABLE_LTO})
 
 if ("x86_64" IN_LIST ARCHITECTURE)
-    target_link_libraries(common PRIVATE xbyak)
+    target_link_libraries(citra_common PRIVATE xbyak)
 endif()
 
 if (CITRA_USE_PRECOMPILED_HEADERS)
-    target_precompile_headers(common PRIVATE precompiled_headers.h)
+    target_precompile_headers(citra_common PRIVATE precompiled_headers.h)
 endif()

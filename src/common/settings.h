@@ -10,6 +10,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include "audio_core/input_details.h"
+#include "audio_core/sink_details.h"
 #include "common/common_types.h"
 #include "core/hle/service/cam/cam_params.h"
 
@@ -40,12 +42,6 @@ enum class LayoutOption : u32 {
     // Similiar to LargeScreen, but better for mobile devices in landscape mode. The screens are
     // clamped to the top of the frame, and the bottom screen is a bit bigger.
     MobileLandscape,
-};
-
-enum class MicInputType : u32 {
-    None = 0,
-    Real = 1,
-    Static = 2,
 };
 
 enum class StereoRenderOption : u32 {
@@ -457,9 +453,9 @@ struct Values {
     Setting<u16> custom_bottom_bottom{480, "custom_bottom_bottom"};
     Setting<u16> custom_second_layer_opacity{100, "custom_second_layer_opacity"};
 
-    SwitchableSetting<double> bg_red{0.f, "bg_red"};
-    SwitchableSetting<double> bg_green{0.f, "bg_green"};
-    SwitchableSetting<double> bg_blue{0.f, "bg_blue"};
+    SwitchableSetting<float> bg_red{0.f, "bg_red"};
+    SwitchableSetting<float> bg_green{0.f, "bg_green"};
+    SwitchableSetting<float> bg_blue{0.f, "bg_blue"};
 
     SwitchableSetting<StereoRenderOption> render_3d{StereoRenderOption::Off, "render_3d"};
     SwitchableSetting<u32> factor_3d{0, "factor_3d"};
@@ -477,16 +473,17 @@ struct Values {
     SwitchableSetting<bool> dump_textures{false, "dump_textures"};
     SwitchableSetting<bool> custom_textures{false, "custom_textures"};
     SwitchableSetting<bool> preload_textures{false, "preload_textures"};
+    SwitchableSetting<bool> async_custom_loading{true, "async_custom_loading"};
 
     // Audio
     bool audio_muted;
     SwitchableSetting<AudioEmulation> audio_emulation{AudioEmulation::HLE, "audio_emulation"};
-    Setting<std::string> sink_id{"auto", "output_engine"};
     SwitchableSetting<bool> enable_audio_stretching{true, "enable_audio_stretching"};
-    Setting<std::string> audio_device_id{"auto", "output_device"};
     SwitchableSetting<float, true> volume{1.f, 0.f, 1.f, "volume"};
-    Setting<MicInputType> mic_input_type{MicInputType::None, "mic_input_type"};
-    Setting<std::string> mic_input_device{"Default", "mic_input_device"};
+    Setting<AudioCore::SinkType> output_type{AudioCore::SinkType::Auto, "output_type"};
+    Setting<std::string> output_device{"auto", "output_device"};
+    Setting<AudioCore::InputType> input_type{AudioCore::InputType::Auto, "input_type"};
+    Setting<std::string> input_device{"auto", "input_device"};
 
     // Camera
     std::array<std::string, Service::CAM::NumCameras> camera_name;

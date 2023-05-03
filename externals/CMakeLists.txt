@@ -64,6 +64,10 @@ if(ANDROID)
     endforeach()
 endif()
 
+# dds-ktx
+add_library(dds-ktx INTERFACE)
+target_include_directories(dds-ktx INTERFACE ./dds-ktx)
+
 # fmt and Xbyak need to be added before dynarmic
 # libfmt
 option(FMT_INSTALL "" ON)
@@ -99,7 +103,9 @@ target_include_directories(microprofile INTERFACE ./microprofile)
 # Nihstro
 add_library(nihstro-headers INTERFACE)
 target_include_directories(nihstro-headers INTERFACE ./nihstro/include)
-
+if (MSVC)
+    target_compile_options(nihstro-headers INTERFACE /W0)
+endif()
 # Open Source Archives
 add_subdirectory(open_source_archives)
 
@@ -141,6 +147,10 @@ if (USE_DISCORD_PRESENCE)
     target_include_directories(discord-rpc INTERFACE ./discord-rpc/include)
 endif()
 
+# JSON
+add_library(json-headers INTERFACE)
+target_include_directories(json-headers INTERFACE ./json)
+
 if (ENABLE_WEB_SERVICE)
     find_package(OpenSSL 1.1)
     if (OPENSSL_FOUND)
@@ -156,9 +166,6 @@ if (ENABLE_WEB_SERVICE)
             DIRECTORY libressl
             DEFINITION OPENSSL_LIBS)
     endif()
-    # JSON
-    add_library(json-headers INTERFACE)
-    target_include_directories(json-headers INTERFACE ./json)
 
     if(ANDROID)
         add_subdirectory(android-ifaddrs)
@@ -184,4 +191,17 @@ if(ANDROID)
     # libyuv
     add_subdirectory(libyuv)
     target_include_directories(yuv INTERFACE ./libyuv/include)
+endif()
+
+# OpenAL Soft
+if (ENABLE_OPENAL)
+    set(ALSOFT_EMBED_HRTF_DATA OFF CACHE BOOL "")
+    set(ALSOFT_EXAMPLES OFF CACHE BOOL "")
+    set(ALSOFT_INSTALL OFF CACHE BOOL "")
+    set(ALSOFT_INSTALL_CONFIG OFF CACHE BOOL "")
+    set(ALSOFT_INSTALL_HRTF_DATA OFF CACHE BOOL "")
+    set(ALSOFT_INSTALL_AMBDEC_PRESETS OFF CACHE BOOL "")
+    set(ALSOFT_UTILS OFF CACHE BOOL "")
+    set(LIBTYPE "STATIC" CACHE STRING "")
+    add_subdirectory(openal-soft EXCLUDE_FROM_ALL)
 endif()

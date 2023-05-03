@@ -15,7 +15,6 @@
 #include "citra/emu_window/emu_window_sdl2.h"
 #include "citra/emu_window/emu_window_sdl2_gl.h"
 #include "citra/emu_window/emu_window_sdl2_sw.h"
-#include "citra/lodepng_image_interface.h"
 #include "common/common_paths.h"
 #include "common/detached_tasks.h"
 #include "common/file_util.h"
@@ -359,9 +358,6 @@ int main(int argc, char** argv) {
     // Register frontend applets
     Frontend::RegisterDefaultApplets();
 
-    // Register generic image interface
-    Core::System::GetInstance().RegisterImageInterface(std::make_shared<LodePNGImageInterface>());
-
     EmuWindow_SDL2::InitializeSDL2();
 
     const auto create_emu_window = [](bool fullscreen,
@@ -372,6 +368,8 @@ int main(int argc, char** argv) {
         case Settings::GraphicsAPI::Software:
             return std::make_unique<EmuWindow_SDL2_SW>(fullscreen, is_secondary);
         }
+        LOG_ERROR(Frontend, "Invalid Graphics API, using OpenGL");
+        return std::make_unique<EmuWindow_SDL2_GL>(fullscreen, is_secondary);
     };
 
     const auto emu_window{create_emu_window(fullscreen, false)};

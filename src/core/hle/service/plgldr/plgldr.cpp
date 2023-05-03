@@ -26,7 +26,6 @@
 #include "common/settings.h"
 #include "core/core.h"
 #include "core/file_sys/plugin_3gx.h"
-#include "core/frontend/mic.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/kernel/event.h"
@@ -47,19 +46,21 @@ PAddr PLG_LDR::plugin_fb_addr = 0;
 
 PLG_LDR::PLG_LDR() : ServiceFramework{"plg:ldr", 1} {
     static const FunctionInfo functions[] = {
-        {IPC::MakeHeader(1, 0, 2), nullptr, "LoadPlugin"},
-        {IPC::MakeHeader(2, 0, 0), &PLG_LDR::IsEnabled, "IsEnabled"},
-        {IPC::MakeHeader(3, 1, 0), &PLG_LDR::SetEnabled, "SetEnabled"},
-        {IPC::MakeHeader(4, 2, 4), &PLG_LDR::SetLoadSettings, "SetLoadSettings"},
-        {IPC::MakeHeader(5, 1, 8), nullptr, "DisplayMenu"},
-        {IPC::MakeHeader(6, 0, 4), nullptr, "DisplayMessage"},
-        {IPC::MakeHeader(7, 1, 4), &PLG_LDR::DisplayErrorMessage, "DisplayErrorMessage"},
-        {IPC::MakeHeader(8, 0, 0), &PLG_LDR::GetPLGLDRVersion, "GetPLGLDRVersion"},
-        {IPC::MakeHeader(9, 0, 0), &PLG_LDR::GetArbiter, "GetArbiter"},
-        {IPC::MakeHeader(10, 0, 2), &PLG_LDR::GetPluginPath, "GetPluginPath"},
-        {IPC::MakeHeader(11, 1, 0), nullptr, "SetRosalinaMenuBlock"},
-        {IPC::MakeHeader(12, 2, 4), nullptr, "SetSwapParam"},
-        {IPC::MakeHeader(13, 1, 2), nullptr, "SetLoadExeParam"},
+        // clang-format off
+        {IPC::MakeHeader(0x0001, 0, 2), nullptr, "LoadPlugin"},
+        {IPC::MakeHeader(0x0002, 0, 0), &PLG_LDR::IsEnabled, "IsEnabled"},
+        {IPC::MakeHeader(0x0003, 1, 0), &PLG_LDR::SetEnabled, "SetEnabled"},
+        {IPC::MakeHeader(0x0004, 2, 4), &PLG_LDR::SetLoadSettings, "SetLoadSettings"},
+        {IPC::MakeHeader(0x0005, 1, 8), nullptr, "DisplayMenu"},
+        {IPC::MakeHeader(0x0006, 0, 4), nullptr, "DisplayMessage"},
+        {IPC::MakeHeader(0x0007, 1, 4), &PLG_LDR::DisplayErrorMessage, "DisplayErrorMessage"},
+        {IPC::MakeHeader(0x0008, 0, 0), &PLG_LDR::GetPLGLDRVersion, "GetPLGLDRVersion"},
+        {IPC::MakeHeader(0x0009, 0, 0), &PLG_LDR::GetArbiter, "GetArbiter"},
+        {IPC::MakeHeader(0x000A, 0, 2), &PLG_LDR::GetPluginPath, "GetPluginPath"},
+        {IPC::MakeHeader(0x000B, 1, 0), nullptr, "SetRosalinaMenuBlock"},
+        {IPC::MakeHeader(0x000C, 2, 4), nullptr, "SetSwapParam"},
+        {IPC::MakeHeader(0x000D, 1, 2), nullptr, "SetLoadExeParam"},
+        // clang-format on
     };
     RegisterHandlers(functions);
     plgldr_context.memory_changed_handle = 0;
@@ -98,7 +99,7 @@ void PLG_LDR::OnProcessRun(Kernel::Process& process, Kernel::KernelSystem& kerne
             plugin_root + fmt::format("{:016X}", process.codeset->program_id);
         FileUtil::FSTEntry entry;
         FileUtil::ScanDirectoryTree(plugin_tid, entry);
-        for (const auto child : entry.children) {
+        for (const auto& child : entry.children) {
             if (!child.isDirectory && child.physicalName.ends_with(".3gx")) {
                 plgldr_context.is_default_path = false;
                 plgldr_context.plugin_path = child.physicalName;

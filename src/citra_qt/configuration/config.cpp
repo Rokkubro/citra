@@ -10,7 +10,6 @@
 #include "citra_qt/configuration/config.h"
 #include "common/file_util.h"
 #include "common/settings.h"
-#include "core/frontend/mic.h"
 #include "core/hle/service/service.h"
 #include "input_common/main.h"
 #include "input_common/udp/client.h"
@@ -56,7 +55,7 @@ const std::array<std::array<int, 5>, Settings::NativeAnalog::NumAnalogs> Config:
 // This must be in alphabetical order according to action name as it must have the same order as
 // UISetting::values.shortcuts, which is alphabetically ordered.
 // clang-format off
-const std::array<UISettings::Shortcut, 27> Config::default_hotkeys {{
+const std::array<UISettings::Shortcut, 28> Config::default_hotkeys {{
      {QStringLiteral("Advance Frame"),            QStringLiteral("Main Window"), {QStringLiteral(""),     Qt::ApplicationShortcut}},
      {QStringLiteral("Capture Screenshot"),       QStringLiteral("Main Window"), {QStringLiteral("Ctrl+P"), Qt::WidgetWithChildrenShortcut}},
      {QStringLiteral("Continue/Pause Emulation"), QStringLiteral("Main Window"), {QStringLiteral("F4"),     Qt::WindowShortcut}},
@@ -84,6 +83,7 @@ const std::array<UISettings::Shortcut, 27> Config::default_hotkeys {{
      {QStringLiteral("Toggle Screen Layout"),     QStringLiteral("Main Window"), {QStringLiteral("F10"),    Qt::WindowShortcut}},
      {QStringLiteral("Toggle Status Bar"),        QStringLiteral("Main Window"), {QStringLiteral("Ctrl+S"), Qt::WindowShortcut}},
      {QStringLiteral("Toggle Texture Dumping"),   QStringLiteral("Main Window"), {QStringLiteral(""),       Qt::ApplicationShortcut}},
+     {QStringLiteral("Toggle Custom Textures"),   QStringLiteral("Main Window"), {QStringLiteral("F7"),     Qt::ApplicationShortcut}},
     }};
 // clang-format on
 
@@ -275,10 +275,10 @@ void Config::ReadAudioValues() {
     ReadGlobalSetting(Settings::values.volume);
 
     if (global) {
-        ReadBasicSetting(Settings::values.sink_id);
-        ReadBasicSetting(Settings::values.audio_device_id);
-        ReadBasicSetting(Settings::values.mic_input_device);
-        ReadBasicSetting(Settings::values.mic_input_type);
+        ReadBasicSetting(Settings::values.output_type);
+        ReadBasicSetting(Settings::values.output_device);
+        ReadBasicSetting(Settings::values.input_type);
+        ReadBasicSetting(Settings::values.input_device);
     }
 
     qt_config->endGroup();
@@ -439,6 +439,7 @@ void Config::ReadUtilityValues() {
     ReadGlobalSetting(Settings::values.dump_textures);
     ReadGlobalSetting(Settings::values.custom_textures);
     ReadGlobalSetting(Settings::values.preload_textures);
+    ReadGlobalSetting(Settings::values.async_custom_loading);
 
     qt_config->endGroup();
 }
@@ -845,10 +846,10 @@ void Config::SaveAudioValues() {
     WriteGlobalSetting(Settings::values.volume);
 
     if (global) {
-        WriteBasicSetting(Settings::values.sink_id);
-        WriteBasicSetting(Settings::values.audio_device_id);
-        WriteBasicSetting(Settings::values.mic_input_device);
-        WriteBasicSetting(Settings::values.mic_input_type);
+        WriteBasicSetting(Settings::values.output_type);
+        WriteBasicSetting(Settings::values.output_device);
+        WriteBasicSetting(Settings::values.input_type);
+        WriteBasicSetting(Settings::values.input_device);
     }
 
     qt_config->endGroup();
@@ -949,6 +950,7 @@ void Config::SaveUtilityValues() {
     WriteGlobalSetting(Settings::values.dump_textures);
     WriteGlobalSetting(Settings::values.custom_textures);
     WriteGlobalSetting(Settings::values.preload_textures);
+    WriteGlobalSetting(Settings::values.async_custom_loading);
 
     qt_config->endGroup();
 }

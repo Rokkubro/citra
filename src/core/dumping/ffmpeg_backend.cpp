@@ -383,7 +383,7 @@ void FFmpegAudioStream::ProcessFrame(const VariableAudioFrame& channel0,
             LOG_ERROR(Render, "Audio frame dropped: Could not resample data");
             return;
         }
-        if (static_cast<u64>(resampled_count) < frame_size) {
+        if (resampled_count < frame_size) {
             offset = resampled_count;
             break;
         }
@@ -813,8 +813,7 @@ std::vector<FormatInfo> ListFormats() {
     void* data = nullptr; // For libavformat to save the iteration state
     while ((current = av_muxer_iterate(&data))) {
 #endif
-        std::vector<std::string> extensions;
-        Common::SplitString(ToStdString(current->extensions), ',', extensions);
+        const auto extensions = Common::SplitString(ToStdString(current->extensions), ',');
 
         std::set<AVCodecID> supported_video_codecs;
         std::set<AVCodecID> supported_audio_codecs;

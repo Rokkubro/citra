@@ -495,7 +495,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Invalid size {} for property id {}", size, property_id);
             break;
         }
-        task_id_list_size = task_id_list.size();
+        task_id_list_size = static_cast<u16>(task_id_list.size());
         buffer.Write(&task_id_list_size, 0, size);
         result = 0;
         LOG_DEBUG(Service_BOSS, "Wrote out total_tasks {}", task_id_list_size);

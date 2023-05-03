@@ -1,5 +1,6 @@
 add_executable(tests
     common/bit_field.cpp
+    common/file_util.cpp
     common/param_package.cpp
     core/arm/arm_test_common.cpp
     core/arm/arm_test_common.h
@@ -17,7 +18,7 @@ add_executable(tests
 
 create_target_directory_groups(tests)
 
-target_link_libraries(tests PRIVATE common core video_core audio_core)
+target_link_libraries(tests PRIVATE citra_common citra_core video_core audio_core)
 target_link_libraries(tests PRIVATE ${PLATFORM_LIBRARIES} Catch2::Catch2WithMain nihstro-headers Threads::Threads)
 
 add_test(NAME tests COMMAND tests)
