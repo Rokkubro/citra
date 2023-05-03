@@ -34,7 +34,6 @@
 #include "citra_qt/bootmanager.h"
 #include "citra_qt/camera/qt_multimedia_camera.h"
 #include "citra_qt/camera/still_image_camera.h"
-#include "citra_qt/cheats.h"
 #include "citra_qt/compatdb.h"
 #include "citra_qt/compatibility_list.h"
 #include "citra_qt/configuration/config.h"
@@ -101,6 +100,10 @@
 #include "ui_main.h"
 #include "video_core/renderer_base.h"
 #include "video_core/video_core.h"
+
+#ifdef __APPLE__
+#include "macos_authorization.h"
+#endif
 
 #ifdef USE_DISCORD_PRESENCE
 #include "citra_qt/discord_impl.h"
@@ -578,6 +581,8 @@ void GMainWindow::InitializeHotkeys() {
     });
     connect_shortcut(QStringLiteral("Toggle Texture Dumping"),
                      [&] { Settings::values.dump_textures = !Settings::values.dump_textures; });
+    connect_shortcut(QStringLiteral("Toggle Custom Textures"),
+                     [&] { Settings::values.custom_textures = !Settings::values.custom_textures; });
     // We use "static" here in order to avoid capturing by lambda due to a MSVC bug, which makes
     // the variable hold a garbage value after this function exits
     static constexpr u16 SPEED_LIMIT_STEP = 5;
@@ -661,7 +666,6 @@ void GMainWindow::RestoreUIState() {
     microProfileDialog->restoreGeometry(UISettings::values.microprofile_geometry);
     microProfileDialog->setVisible(UISettings::values.microprofile_visible.GetValue());
 #endif
-    ui->action_Cheats->setEnabled(false);
 
     game_list->LoadInterfaceLayout();
 
@@ -763,7 +767,6 @@ void GMainWindow::ConnectMenuEvents() {
     connect_menu(ui->action_Report_Compatibility, &GMainWindow::OnMenuReportCompatibility);
     connect_menu(ui->action_Configure, &GMainWindow::OnConfigure);
     connect_menu(ui->action_Configure_Current_Game, &GMainWindow::OnConfigurePerGame);
-    connect_menu(ui->action_Cheats, &GMainWindow::OnCheats);
 
     // View
     connect_menu(ui->action_Single_Window_Mode, &GMainWindow::ToggleWindowMode);
@@ -849,7 +852,6 @@ void GMainWindow::UpdateMenuState() {
         ui->action_Load_Amiibo,
         ui->action_Remove_Amiibo,
         ui->action_Pause,
-        ui->action_Cheats,
         ui->action_Advance_Frame,
     };
 
@@ -1935,11 +1937,6 @@ void GMainWindow::TriggerRotateScreens() {
     ui->action_Screen_Layout_Upright_Screens->trigger();
 }
 
-void GMainWindow::OnCheats() {
-    CheatDialog cheat_dialog(this);
-    cheat_dialog.exec();
-}
-
 void GMainWindow::OnSaveState() {
     QAction* action = qobject_cast<QAction*>(sender());
     assert(action);
@@ -2255,7 +2252,7 @@ void GMainWindow::UpdateStatusBar() {
         message_label_used_for_movie = true;
         ui->action_Save_Movie->setEnabled(true);
     } else if (play_mode == Core::Movie::PlayMode::Playing) {
-        message_label->setText(tr("Playing %1 / %2").arg(current, total));
+        message_label->setText(tr("Playing %1 / %2").arg(current).arg(total));
         message_label_used_for_movie = true;
         ui->action_Save_Movie->setEnabled(false);
     } else if (play_mode == Core::Movie::PlayMode::MovieFinished) {
@@ -2290,7 +2287,8 @@ void GMainWindow::UpdateBootHomeMenuState() {
     for (u32 region = 0; region < Core::NUM_SYSTEM_TITLE_REGIONS; region++) {
         const auto path = Core::GetHomeMenuNcchPath(region);
         ui->menu_Boot_Home_Menu->actions().at(region)->setEnabled(
-            (current_region == Settings::REGION_VALUE_AUTO_SELECT || current_region == region) &&
+            (current_region == Settings::REGION_VALUE_AUTO_SELECT ||
+             current_region == static_cast<int>(region)) &&
             !path.empty() && FileUtil::Exists(path));
     }
 }
@@ -2785,6 +2783,11 @@ int main(int argc, char* argv[]) {
 
     // Register Qt image interface
     system.RegisterImageInterface(std::make_shared<QtImageInterface>());
+
+#ifdef __APPLE__
+    // Register microphone permission check.
+    system.RegisterMicPermissionCheck(&AppleAuthorization::CheckAuthorizationForMicrophone);
+#endif
 
     main_window.show();
 

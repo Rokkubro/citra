@@ -14,6 +14,12 @@
 
 namespace Common {
 
+/// Make a char lowercase
+[[nodiscard]] char ToLower(char c);
+
+/// Make a char uppercase
+[[nodiscard]] char ToUpper(char c);
+
 /// Make a string lowercase
 [[nodiscard]] std::string ToLower(std::string str);
 
@@ -29,7 +35,7 @@ namespace Common {
 
 [[nodiscard]] bool EndsWith(const std::string& value, const std::string& ending);
 
-void SplitString(const std::string& str, char delim, std::vector<std::string>& output);
+[[nodiscard]] std::vector<std::string> SplitString(const std::string& str, const char delim);
 
 // "C:/Windows/winhelp.exe" to "C:/Windows/", "winhelp", ".exe"
 bool SplitPath(const std::string& full_path, std::string* _pPath, std::string* _pFilename,

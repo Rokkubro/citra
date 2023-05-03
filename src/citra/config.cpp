@@ -15,7 +15,6 @@
 #include "common/logging/log.h"
 #include "common/param_package.h"
 #include "common/settings.h"
-#include "core/frontend/mic.h"
 #include "core/hle/service/service.h"
 #include "input_common/main.h"
 #include "input_common/udp/client.h"
@@ -89,7 +88,8 @@ void Config::ReadSetting(const std::string& group, Settings::Setting<bool>& sett
 template <typename Type, bool ranged>
 void Config::ReadSetting(const std::string& group, Settings::Setting<Type, ranged>& setting) {
     if constexpr (std::is_floating_point_v<Type>) {
-        setting = sdl2_config->GetReal(group, setting.GetLabel(), setting.GetDefault());
+        setting = static_cast<Type>(
+            sdl2_config->GetReal(group, setting.GetLabel(), setting.GetDefault()));
     } else {
         setting = static_cast<Type>(sdl2_config->GetInteger(
             group, setting.GetLabel(), static_cast<long>(setting.GetDefault())));
@@ -175,15 +175,16 @@ void Config::ReadValues() {
     ReadSetting("Utility", Settings::values.dump_textures);
     ReadSetting("Utility", Settings::values.custom_textures);
     ReadSetting("Utility", Settings::values.preload_textures);
+    ReadSetting("Utility", Settings::values.async_custom_loading);
 
     // Audio
     ReadSetting("Audio", Settings::values.audio_emulation);
-    ReadSetting("Audio", Settings::values.sink_id);
     ReadSetting("Audio", Settings::values.enable_audio_stretching);
-    ReadSetting("Audio", Settings::values.audio_device_id);
     ReadSetting("Audio", Settings::values.volume);
-    ReadSetting("Audio", Settings::values.mic_input_device);
-    ReadSetting("Audio", Settings::values.mic_input_type);
+    ReadSetting("Audio", Settings::values.output_type);
+    ReadSetting("Audio", Settings::values.output_device);
+    ReadSetting("Audio", Settings::values.input_type);
+    ReadSetting("Audio", Settings::values.input_device);
 
     // Data Storage
     ReadSetting("Data Storage", Settings::values.use_virtual_sd);

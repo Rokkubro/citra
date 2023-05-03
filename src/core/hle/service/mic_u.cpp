@@ -3,11 +3,12 @@
 // Refer to the license.txt file included.
 
 #include <boost/serialization/weak_ptr.hpp>
+#include "audio_core/input.h"
+#include "audio_core/input_details.h"
 #include "common/archives.h"
 #include "common/logging/log.h"
 #include "common/settings.h"
 #include "core/core.h"
-#include "core/frontend/mic.h"
 #include "core/hle/ipc.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/kernel/event.h"
@@ -167,7 +168,7 @@ struct MIC_U::Impl {
             return;
         }
 
-        Frontend::Mic::Samples samples = mic->Read();
+        AudioCore::Samples samples = mic->Read();
         if (!samples.empty()) {
             // write the samples to sharedmem page
             state.WriteSamples(samples);
@@ -180,8 +181,8 @@ struct MIC_U::Impl {
 
     void StartSampling() {
         auto sign = encoding == Encoding::PCM8Signed || encoding == Encoding::PCM16Signed
-                        ? Frontend::Mic::Signedness::Signed
-                        : Frontend::Mic::Signedness::Unsigned;
+                        ? AudioCore::Signedness::Signed
+                        : AudioCore::Signedness::Unsigned;
         mic->StartSampling({sign, state.sample_size, state.looped_buffer,
                             GetSampleRateInHz(state.sample_rate), state.initial_offset,
                             static_cast<u32>(state.size)});
@@ -349,21 +350,9 @@ struct MIC_U::Impl {
     }
 
     void CreateMic() {
-        std::unique_ptr<Frontend::Mic::Interface> new_mic;
-        switch (Settings::values.mic_input_type.GetValue()) {
-        case Settings::MicInputType::None:
-            new_mic = std::make_unique<Frontend::Mic::NullMic>();
-            break;
-        case Settings::MicInputType::Real:
-            new_mic = Frontend::Mic::CreateRealMic(Settings::values.mic_input_device.GetValue());
-            break;
-        case Settings::MicInputType::Static:
-            new_mic = std::make_unique<Frontend::Mic::StaticMic>();
-            break;
-        default:
-            LOG_CRITICAL(Audio, "Mic type not found. Defaulting to null mic");
-            new_mic = std::make_unique<Frontend::Mic::NullMic>();
-        }
+        std::unique_ptr<AudioCore::Input> new_mic = AudioCore::CreateInputFromID(
+            Settings::values.input_type.GetValue(), Settings::values.input_device.GetValue());
+
         // If theres already a mic, copy over any data to the new mic impl
         if (mic) {
             new_mic->SetGain(mic->GetGain());
@@ -386,7 +375,7 @@ struct MIC_U::Impl {
     u32 client_version = 0;
     bool allow_shell_closed = false;
     bool clamp = false;
-    std::unique_ptr<Frontend::Mic::Interface> mic;
+    std::unique_ptr<AudioCore::Input> mic;
     Core::Timing& timing;
     State state{};
     Encoding encoding{};
@@ -488,22 +477,24 @@ void MIC_U::SetClientVersion(Kernel::HLERequestContext& ctx) {
 MIC_U::MIC_U(Core::System& system)
     : ServiceFramework{"mic:u", 1}, impl{std::make_unique<Impl>(system)} {
     static const FunctionInfo functions[] = {
-        {0x00010042, &MIC_U::MapSharedMem, "MapSharedMem"},
-        {0x00020000, &MIC_U::UnmapSharedMem, "UnmapSharedMem"},
-        {0x00030140, &MIC_U::StartSampling, "StartSampling"},
-        {0x00040040, &MIC_U::AdjustSampling, "AdjustSampling"},
-        {0x00050000, &MIC_U::StopSampling, "StopSampling"},
-        {0x00060000, &MIC_U::IsSampling, "IsSampling"},
-        {0x00070000, &MIC_U::GetBufferFullEvent, "GetBufferFullEvent"},
-        {0x00080040, &MIC_U::SetGain, "SetGain"},
-        {0x00090000, &MIC_U::GetGain, "GetGain"},
-        {0x000A0040, &MIC_U::SetPower, "SetPower"},
-        {0x000B0000, &MIC_U::GetPower, "GetPower"},
-        {0x000C0042, &MIC_U::SetIirFilterMic, "SetIirFilterMic"},
-        {0x000D0040, &MIC_U::SetClamp, "SetClamp"},
-        {0x000E0000, &MIC_U::GetClamp, "GetClamp"},
-        {0x000F0040, &MIC_U::SetAllowShellClosed, "SetAllowShellClosed"},
-        {0x00100040, &MIC_U::SetClientVersion, "SetClientVersion"},
+        // clang-format off
+        {IPC::MakeHeader(0x0001, 1, 2), &MIC_U::MapSharedMem, "MapSharedMem"},
+        {IPC::MakeHeader(0x0002, 0, 0), &MIC_U::UnmapSharedMem, "UnmapSharedMem"},
+        {IPC::MakeHeader(0x0003, 5, 0), &MIC_U::StartSampling, "StartSampling"},
+        {IPC::MakeHeader(0x0004, 1, 0), &MIC_U::AdjustSampling, "AdjustSampling"},
+        {IPC::MakeHeader(0x0005, 0, 0), &MIC_U::StopSampling, "StopSampling"},
+        {IPC::MakeHeader(0x0006, 0, 0), &MIC_U::IsSampling, "IsSampling"},
+        {IPC::MakeHeader(0x0007, 0, 0), &MIC_U::GetBufferFullEvent, "GetBufferFullEvent"},
+        {IPC::MakeHeader(0x0008, 1, 0), &MIC_U::SetGain, "SetGain"},
+        {IPC::MakeHeader(0x0009, 0, 0), &MIC_U::GetGain, "GetGain"},
+        {IPC::MakeHeader(0x000A, 1, 0), &MIC_U::SetPower, "SetPower"},
+        {IPC::MakeHeader(0x000B, 0, 0), &MIC_U::GetPower, "GetPower"},
+        {IPC::MakeHeader(0x000C, 1, 2), &MIC_U::SetIirFilterMic, "SetIirFilterMic"},
+        {IPC::MakeHeader(0x000D, 1, 0), &MIC_U::SetClamp, "SetClamp"},
+        {IPC::MakeHeader(0x000E, 0, 0), &MIC_U::GetClamp, "GetClamp"},
+        {IPC::MakeHeader(0x000F, 1, 0), &MIC_U::SetAllowShellClosed, "SetAllowShellClosed"},
+        {IPC::MakeHeader(0x0010, 1, 0), &MIC_U::SetClientVersion, "SetClientVersion"},
+        // clang-format on
     };
 
     impl->CreateMic();

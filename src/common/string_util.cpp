@@ -20,17 +20,27 @@
 
 namespace Common {
 
+/// Make a char lowercase
+char ToLower(char c) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+}
+
+/// Make a char uppercase
+char ToUpper(char c) {
+    return static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+}
+
 /// Make a string lowercase
 std::string ToLower(std::string str) {
     std::transform(str.begin(), str.end(), str.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return str;
 }
 
 /// Make a string uppercase
 std::string ToUpper(std::string str) {
     std::transform(str.begin(), str.end(), str.begin(),
-                   [](unsigned char c) { return std::toupper(c); });
+                   [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
     return str;
 }
 
@@ -102,15 +112,16 @@ void BuildCompleteFilename(std::string& _CompleteFilename, const std::string& _P
     _CompleteFilename += _Filename;
 }
 
-void SplitString(const std::string& str, const char delim, std::vector<std::string>& output) {
+std::vector<std::string> SplitString(const std::string& str, const char delim) {
     std::istringstream iss(str);
-    output.resize(1);
+    std::vector<std::string> output(1);
 
     while (std::getline(iss, *output.rbegin(), delim)) {
         output.emplace_back();
     }
 
     output.pop_back();
+    return output;
 }
 
 std::string TabsToSpaces(int tab_size, std::string in) {
