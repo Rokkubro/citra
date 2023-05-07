@@ -4,6 +4,10 @@
 
 #include <cryptopp/aes.h>
 #include <cryptopp/modes.h>
+#include <httplib.h>
+// Needed if httplib is included on windows
+#undef CreateEvent
+#undef CreateFile
 #include "common/file_util.h"
 #include "common/logging/log.h"
 #include "common/string_util.h"
@@ -18,7 +22,6 @@
 #include "core/hle/service/boss/boss_u.h"
 #include "core/hw/aes/arithmetic128.h"
 #include "core/hw/aes/key.h"
-#include <httplib.h>
 
 namespace Service::BOSS {
 
@@ -619,12 +622,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     auto boss_archive = std::move(archive_result).Unwrap().get();
 
     FileSys::Path file_path = ("/" + file_name).c_str();
-// Needed if httplib is included on windows
-#define CreateFileA CreateFile
-#define CreateFileW CreateFile
     auto create_result = boss_archive->CreateFile(file_path, boss_header_length + payload_size);
-#undef CreateFileA
-#undef CreateFileW
     if (create_result.is_error) {
         LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
     }
@@ -649,12 +647,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     file->Close();
     // Temporarily also write raw data
     FileSys::Path raw_file_path = "/raw_data";
-// Needed if httplib is included on windows
-#define CreateFileA CreateFile
-#define CreateFileW CreateFile
     auto raw_create_result = boss_archive->CreateFile(raw_file_path, decrypted_data.size());
-#undef CreateFileA
-#undef CreateFileW
     if (raw_create_result.is_error) {
         LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
     }
@@ -1597,14 +1590,9 @@ Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32
 
 Module::Module(Core::System& system) {
     using namespace Kernel;
-// TODO: verify ResetType
-// Needed if httplib is included on windows
-#define CreateEventA CreateEvent
-#define CreateEventW CreateEvent
+    // TODO: verify ResetType
     task_finish_event =
         system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "BOSS::task_finish_event");
-#undef CreateEventA
-#undef CreateEventW
 }
 
 void InstallInterfaces(Core::System& system) {
