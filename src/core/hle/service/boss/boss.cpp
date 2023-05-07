@@ -4,10 +4,17 @@
 
 #include <cryptopp/aes.h>
 #include <cryptopp/modes.h>
+#ifdef ENABLE_WEB_SERVICE
+#if defined(__ANDROID__)
+#include <ifaddrs.h>
+#endif
 #include <httplib.h>
-// Needed if httplib is included on windows
+#ifdef WIN32
+// Needed to prevent conflicts with macros when httplib is included on windows
 #undef CreateEvent
 #undef CreateFile
+#endif
+#endif
 #include "common/file_util.h"
 #include "common/logging/log.h"
 #include "common/string_util.h"
@@ -465,6 +472,7 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
 }
 
 bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
+#ifdef ENABLE_WEB_SERVICE
     size_t scheme_end = url.find("://") + 3;
     std::string scheme = url.substr(0, scheme_end);
     LOG_DEBUG(Service_BOSS, "Scheme is {}", scheme);
@@ -663,6 +671,10 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     raw_file->Close();
     // end raw data block
     return true;
+#else
+    LOG_ERROR(Service_BOSS, "Cannot download data as web services are not enabled");
+    return false;
+#endif
 }
 
 void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
