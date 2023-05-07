@@ -37,7 +37,34 @@ struct BossHeader {
 };
 #pragma pack(pop)
 
-static_assert(sizeof(BossHeader) == 0x34, "BossHeaderstruct isn't exactly 0x34 bytes long!");
+static_assert(sizeof(BossHeader) == 0x34, "BossHeader struct isn't exactly 0x34 bytes long!");
+
+// Payload header info from
+// https://www.3dbrew.org/wiki/SpotPass#Content_Container
+// So the total header is only 40 bytes long
+
+const u64 boss_payload_header_length = 0x28;
+// 40 bytes doesn't align nicely into 8-byte words either
+#pragma pack(push, 4)
+struct BossPayloadHeader {
+    u8 boss[4];
+    u32 magic;
+    u32 filesize;
+    u64 release_date;
+    u16 one;
+    u8 padding[2];
+    u16 hash_type;
+    u16 rsa_size;
+    u8 iv_start[0xC];
+};
+#pragma pack(pop)
+
+static_assert(sizeof(BossPayloadHeader) == 0x28,
+              "BossPayloadHeader struct isn't exactly 0x28 bytes long!");
+
+const u64 boss_content_header_length = 0x132;
+const u64 boss_header_with_hash_length = 0x13C;
+const u64 boss_extdata_header_length = 0x18;
 
 struct NsDataEntry {
     std::string filename;
@@ -993,11 +1020,13 @@ public:
         u8 ns_data_new_flag_privileged;
         u8 output_flag;
         std::vector<std::string> task_id_list;
+        std::string current_url;
 
         auto GetBossDataDir();
+        bool DownloadBossDataFromURL(std::string url, std::string file_name);
         std::vector<NsDataEntry> GetNsDataEntries(u32 max_entries);
         u32 GetBossExtDataFiles(u32 files_to_read, auto* boss_files);
-        u32 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
+        u16 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
         bool GetNsDataEntryFromID(u32 ns_data_id, auto* entry);
 
         template <class Archive>
