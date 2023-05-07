@@ -2,6 +2,8 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
+#include <cryptopp/aes.h>
+#include <cryptopp/modes.h>
 #include "common/file_util.h"
 #include "common/logging/log.h"
 #include "common/string_util.h"
@@ -14,6 +16,9 @@
 #include "core/hle/service/boss/boss.h"
 #include "core/hle/service/boss/boss_p.h"
 #include "core/hle/service/boss/boss_u.h"
+#include "core/hw/aes/arithmetic128.h"
+#include "core/hw/aes/key.h"
+#include <httplib.h>
 
 namespace Service::BOSS {
 
@@ -136,6 +141,11 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
+    // I'm putting this here for now because I don't know where else to put it;
+    // the BOSS service saves data in its BOSS_A, BOSS_SS and BOSS_SV databases in the following
+    // format: A four byte header followed by any number of 0x800(BOSS_A) and 0xC00(BOSS_SS and
+    // BOSS_SV) entries.
+
     std::string task_id(size, 0);
     buffer.Read(task_id.data(), 0, size);
     task_id_list.push_back(task_id);
@@ -154,6 +164,19 @@ void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     const u8 unk_param2 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+        if (std::erase(task_id_list, task_id) == 0) {
+            LOG_WARNING(Service_BOSS, "Task Id not in list");
+        } else {
+            LOG_DEBUG(Service_BOSS, "Task Id erased");
+        }
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
@@ -327,7 +350,7 @@ u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
     return entry_count;
 }
 
-u32 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
+u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries(max_entries);
     std::vector<u32> output_entries;
     for (u32 i = 0; i < ns_data.size(); i++) {
@@ -347,7 +370,7 @@ u32 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
     }
     buffer->Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
     LOG_DEBUG(Service_BOSS, "{} usable entries returned", output_entries.size());
-    return static_cast<u32>(output_entries.size());
+    return static_cast<u16>(output_entries.size());
 }
 
 void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
@@ -358,7 +381,7 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u32 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -380,7 +403,7 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u32 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -402,7 +425,7 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u32 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -424,7 +447,7 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u32 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -436,6 +459,217 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
                 "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
                 "word_index_start={:#06X}, start_ns_data_id={:#010X}",
                 filter, max_entries, word_index_start, start_ns_data_id);
+}
+
+bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
+    size_t scheme_end = url.find("://") + 3;
+    std::string scheme = url.substr(0, scheme_end);
+    LOG_DEBUG(Service_BOSS, "Scheme is {}", scheme);
+    std::string host = url.substr(scheme_end, url.size());
+    std::string path = host.substr(host.find("/"), host.size());
+    host = host.substr(0, host.find("/"));
+    LOG_DEBUG(Service_BOSS, "host is {}", host);
+    LOG_DEBUG(Service_BOSS, "path is {}", path);
+    std::unique_ptr<httplib::Client> client = std::make_unique<httplib::Client>(scheme + host);
+    if (client == nullptr) {
+        LOG_ERROR(Service_BOSS, "Invalid URL {}{}", scheme, host);
+        return false;
+    }
+
+    httplib::Request request{
+        .method = "GET",
+        .path = path,
+    };
+    LOG_DEBUG(Service_BOSS, "Got client");
+    client->set_follow_location(true);
+    client->enable_server_certificate_verification(false);
+
+    const auto result = client->send(request);
+    if (!result) {
+        LOG_ERROR(Service_BOSS, "GET to {}{}{} returned null", scheme, host, path);
+        auto err = result.error();
+        LOG_DEBUG(Service_BOSS, "error {}", httplib::to_string(err));
+        return false;
+    }
+    LOG_DEBUG(Service_BOSS, "Got result");
+    const auto& response = result.value();
+    if (response.status >= 400) {
+        LOG_ERROR(Service_BOSS, "GET to {}{}{} returned error status code: {}", scheme, host, path,
+                  response.status);
+        return false;
+    }
+    if (!response.headers.contains("content-type")) {
+        LOG_ERROR(Service_BOSS, "GET to {}{}{} returned no content", scheme, host, path);
+    }
+    LOG_DEBUG(Service_BOSS, "Downloaded content is: {}", response.body);
+
+    if (response.body.size() < boss_payload_header_length) {
+        LOG_WARNING(Service_BOSS, "Payload size of {} too short for boss payload",
+                    response.body.size());
+        return false;
+    }
+    BossPayloadHeader payload_header;
+    std::memcpy(&payload_header, response.body.data(), boss_payload_header_length);
+    u32 one = 1;
+#if COMMON_LITTLE_ENDIAN
+    payload_header.magic = Common::swap32(payload_header.magic);
+    payload_header.filesize = Common::swap32(payload_header.filesize);
+    payload_header.release_date = Common::swap64(payload_header.release_date);
+    payload_header.one = Common::swap16(payload_header.one);
+    payload_header.hash_type = Common::swap16(payload_header.hash_type);
+    payload_header.rsa_size = Common::swap16(payload_header.rsa_size);
+    one = Common::swap32(one);
+#endif
+    std::string boss_string = std::string((char*)payload_header.boss, sizeof(payload_header.boss));
+    if (boss_string.compare("boss") != 0) {
+        LOG_WARNING(Service_BOSS, "Start of file is not 'boss', it's '{}'", boss_string);
+        return false;
+    }
+    LOG_DEBUG(Service_BOSS, "Magic boss number is {}", boss_string);
+    if (payload_header.magic != 0x10001) {
+        LOG_WARNING(Service_BOSS, "Magic number mismatch");
+        return false;
+    }
+    LOG_DEBUG(Service_BOSS, "Magic number is {:#010X}", payload_header.magic);
+    if (payload_header.filesize != response.body.size()) {
+        LOG_WARNING(Service_BOSS, "Expecting response to be size {}, actual size is {}",
+                    payload_header.filesize, response.body.size());
+        return false;
+    }
+    LOG_DEBUG(Service_BOSS, "Filesize is {:#010X}", payload_header.filesize);
+    const u32 data_size = payload_header.filesize - boss_payload_header_length;
+    std::vector<u8> encrypted_data(data_size);
+    std::vector<u8> decrypted_data(data_size);
+    std::memcpy(encrypted_data.data(), response.body.data() + boss_payload_header_length,
+                data_size);
+    std::string encrypted_string((char*)encrypted_data.data(), data_size);
+    LOG_DEBUG(Service_BOSS, "encrypted data {}", encrypted_string);
+    // AES details here: https://www.3dbrew.org/wiki/SpotPass#Content_Container
+    CryptoPP::CTR_Mode<CryptoPP::AES>::Decryption aes;
+    HW::AES::AESKey key = HW::AES::GetNormalKey(0x38);
+    std::vector<u8> iv(sizeof(payload_header.iv_start) + sizeof(one));
+    std::memcpy(iv.data(), payload_header.iv_start, sizeof(payload_header.iv_start));
+    std::memcpy(iv.data() + sizeof(payload_header.iv_start), &one, sizeof(one));
+    u64 iv_high = 0;
+    u64 iv_low = 0;
+    std::memcpy(&iv_high, iv.data(), sizeof(iv_high));
+    std::memcpy(&iv_low, iv.data() + sizeof(iv_high), sizeof(iv_low));
+#if COMMON_LITTLE_ENDIAN
+    iv_high = Common::swap64(iv_high);
+    iv_low = Common::swap64(iv_low);
+#endif
+    LOG_DEBUG(Service_BOSS, "IV is {:#018X},{:#018X}", iv_high, iv_low);
+    aes.SetKeyWithIV(key.data(), CryptoPP::AES::BLOCKSIZE, iv.data());
+    aes.ProcessData(decrypted_data.data(), encrypted_data.data(), data_size);
+    std::string decrypted_string((char*)decrypted_data.data(), data_size);
+    LOG_DEBUG(Service_BOSS, "decrypted data {}", decrypted_string);
+
+    if (decrypted_data.size() < boss_content_header_length + boss_header_with_hash_length) {
+        LOG_WARNING(Service_BOSS, "Payload size to small to be boss data: {}",
+                    decrypted_data.size());
+        return false;
+    }
+
+    BossHeader header;
+    std::memcpy(&header.program_id, decrypted_data.data() + boss_content_header_length,
+                boss_header_length - boss_extdata_header_length);
+#if COMMON_LITTLE_ENDIAN
+    header.program_id = Common::swap64(header.program_id);
+    header.datatype = Common::swap32(header.datatype);
+    header.payload_size = Common::swap32(header.payload_size);
+    header.ns_data_id = Common::swap32(header.ns_data_id);
+    header.version = Common::swap32(header.version);
+#endif
+    u32 payload_size =
+        (u32)(decrypted_data.size() - (boss_content_header_length + boss_header_with_hash_length));
+    if (header.payload_size != payload_size) {
+        LOG_WARNING(Service_BOSS, "Payload has incorrect size, was expecting {}, found {}",
+                    header.payload_size, payload_size);
+        return false;
+    }
+    std::vector<u8> payload(payload_size);
+    std::memcpy(payload.data(),
+                decrypted_data.data() + boss_content_header_length + boss_header_with_hash_length,
+                payload_size);
+    u64 program_id = 0;
+    Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
+    if (program_id != header.program_id) {
+        LOG_WARNING(Service_BOSS, "Mismatched program id, was expecting {:#018X}, found {:#018X}",
+                    program_id, header.program_id);
+        if (header.program_id == 0x0004013000003502) {
+            LOG_DEBUG(Service_BOSS, "Looks like this is a news message");
+            std::string news_string((char*)payload.data(), payload_size);
+            news_string.erase(std::remove(news_string.begin(), news_string.end(), '\0'),
+                              news_string.end());
+            LOG_DEBUG(Service_BOSS, "News string might be {}", news_string);
+        }
+        return false;
+    }
+
+    FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
+
+    FileSys::Path boss_path{GetBossDataDir()};
+
+    auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
+    if (!archive_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Extdata opening failed");
+    }
+    LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
+    auto boss_archive = std::move(archive_result).Unwrap().get();
+
+    FileSys::Path file_path = ("/" + file_name).c_str();
+// Needed if httplib is included on windows
+#define CreateFileA CreateFile
+#define CreateFileW CreateFile
+    auto create_result = boss_archive->CreateFile(file_path, boss_header_length + payload_size);
+#undef CreateFileA
+#undef CreateFileW
+    if (create_result.is_error) {
+        LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
+    }
+    FileSys::Mode open_mode = {};
+    open_mode.write_flag.Assign(1);
+    auto file_result = boss_archive->OpenFile(file_path, open_mode);
+    if (!file_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Could not open spotpass file for writing");
+        return false;
+    }
+    auto file = std::move(file_result).Unwrap();
+    header.header_length = 0x18;
+#if COMMON_LITTLE_ENDIAN
+    header.program_id = Common::swap64(header.program_id);
+    header.datatype = Common::swap32(header.datatype);
+    header.payload_size = Common::swap32(header.payload_size);
+    header.ns_data_id = Common::swap32(header.ns_data_id);
+    header.version = Common::swap32(header.version);
+#endif
+    file->Write(0, boss_header_length, true, (u8*)&header);
+    file->Write(boss_header_length, payload_size, true, payload.data());
+    file->Close();
+    // Temporarily also write raw data
+    FileSys::Path raw_file_path = "/raw_data";
+// Needed if httplib is included on windows
+#define CreateFileA CreateFile
+#define CreateFileW CreateFile
+    auto raw_create_result = boss_archive->CreateFile(raw_file_path, decrypted_data.size());
+#undef CreateFileA
+#undef CreateFileW
+    if (raw_create_result.is_error) {
+        LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
+    }
+    FileSys::Mode raw_open_mode = {};
+    raw_open_mode.write_flag.Assign(1);
+    auto raw_file_result = boss_archive->OpenFile(raw_file_path, raw_open_mode);
+    if (!raw_file_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Could not open spotpass file for writing");
+        return false;
+    }
+    auto raw_file = std::move(raw_file_result).Unwrap();
+    raw_file->Write(0, decrypted_data.size(), true, decrypted_data.data());
+    raw_file->Close();
+    // end raw data block
+    return true;
 }
 
 void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
@@ -456,6 +690,10 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         buffer.Read(property.data(), 0, size);
 
         LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {}", property_id, property);
+        if (property_id == 0x0007) {
+            property.resize(strnlen(property.c_str(), property.size()));
+            current_url = property;
+        }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
@@ -555,6 +793,14 @@ void Module::Interface::UpdateTaskCount(Kernel::HLERequestContext& ctx) {
     const u32 unk_param2 = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
@@ -580,6 +826,14 @@ void Module::Interface::GetTaskCount(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
     rb.Push<u32>(0); // stub 0 ( 32bit value)
@@ -593,9 +847,25 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    u8 task_status = 0;
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+        if (std::find(task_id_list.begin(), task_id_list.end(), task_id) == task_id_list.end()) {
+            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+        } else {
+            task_status = 2;
+            LOG_DEBUG(Service_BOSS, "Found currently running task id");
+        }
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(0); // stub 0 ( 8bit value)
+    rb.Push<u8>(task_status); // stub 0 ( 8bit value) this is taskstatus
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -606,6 +876,20 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        task_id.resize(strnlen(task_id.c_str(), task_id.size()));
+        if (DownloadBossDataFromURL(current_url, task_id)) {
+            LOG_DEBUG(Service_BOSS, "Downloaded from {} successfully", current_url);
+        } else {
+            LOG_WARNING(Service_BOSS, "Failed to download from {}", current_url);
+        }
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
@@ -614,21 +898,40 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
 }
 
 void Module::Interface::StartTaskImmediate(Kernel::HLERequestContext& ctx) {
-    IPC::RequestParser rp(ctx, 0x1D, 1, 2);
-    const u32 size = rp.Pop<u32>();
-    auto& buffer = rp.PopMappedBuffer();
+    // IPC::RequestParser rp(ctx, 0x1D, 1, 2);
+    // const u32 size = rp.Pop<u32>();
+    // auto& buffer = rp.PopMappedBuffer();
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
-    rb.PushMappedBuffer(buffer);
+    // if(size>0x8){
+    // LOG_WARNING(Service_BOSS,"Task Id cannot be longer than 8");
+    // }
+    // else {
+    // std::string task_id(size,0);
+    // buffer.Read(task_id.data(),0,size);
+    // LOG_DEBUG(Service_BOSS,"Read task id {}",task_id);
+    // }
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    // IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+    // rb.Push(RESULT_SUCCESS);
+    // rb.PushMappedBuffer(buffer);
+    LOG_WARNING(Service_BOSS, "StartTaskImmediate called");
+    StartTask(ctx);
+
+    // LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
 }
 
 void Module::Interface::CancelTask(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x1E, 1, 2);
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
@@ -1294,9 +1597,14 @@ Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32
 
 Module::Module(Core::System& system) {
     using namespace Kernel;
-    // TODO: verify ResetType
+// TODO: verify ResetType
+// Needed if httplib is included on windows
+#define CreateEventA CreateEvent
+#define CreateEventW CreateEvent
     task_finish_event =
         system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "BOSS::task_finish_event");
+#undef CreateEventA
+#undef CreateEventW
 }
 
 void InstallInterfaces(Core::System& system) {
