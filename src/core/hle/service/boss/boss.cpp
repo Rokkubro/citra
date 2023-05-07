@@ -1590,10 +1590,9 @@ Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32
 
 Module::Module(Core::System& system) {
     using namespace Kernel;
-    // TODO: verify ResetType
+// TODO: verify ResetType
     task_finish_event =
         system.Kernel().CreateEvent(Kernel::ResetType::OneShot, "BOSS::task_finish_event");
-}
 
 void InstallInterfaces(Core::System& system) {
     auto& service_manager = system.ServiceManager();
