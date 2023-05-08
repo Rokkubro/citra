@@ -15,19 +15,14 @@
 #undef CreateFile
 #endif
 #endif
-#include "common/file_util.h"
-#include "common/logging/log.h"
-#include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/directory_backend.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
-#include "core/hle/result.h"
 #include "core/hle/service/boss/boss.h"
 #include "core/hle/service/boss/boss_p.h"
 #include "core/hle/service/boss/boss_u.h"
-#include "core/hw/aes/arithmetic128.h"
 #include "core/hw/aes/key.h"
 
 namespace Service::BOSS {
@@ -36,6 +31,8 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x01, 2, 2);
     const u64 programID = rp.Pop<u64>();
     rp.PopPID();
+
+    cur_props = BossTaskProperties();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -158,8 +155,13 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
 
     std::string task_id(size, 0);
     buffer.Read(task_id.data(), 0, size);
-    task_id_list.push_back(task_id);
+    if (task_id_list.contains(task_id)) {
+        LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
+        task_id_list.erase(task_id);
+    }
+    task_id_list.emplace(task_id, cur_props);
     LOG_DEBUG(Service_BOSS, "read task id {}", task_id);
+    cur_props = BossTaskProperties();
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
@@ -175,23 +177,24 @@ void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param2 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
+    u32 result = 1;
+
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
     } else {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        size_t orig_size = task_id_list.size();
-        std::erase(task_id_list, task_id);
-        if (task_id_list.size() == orig_size) {
+        if (task_id_list.erase(task_id) == 0) {
             LOG_WARNING(Service_BOSS, "Task Id not in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Task Id erased");
+            result = 0;
         }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
+    rb.Push(result);
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
@@ -244,7 +247,7 @@ auto Module::Interface::GetBossDataDir() {
 std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
     std::vector<NsDataEntry> ns_data;
     const u32 files_to_read = 100;
-    std::array<FileSys::Entry, 100> boss_files;
+    std::vector<FileSys::Entry> boss_files(files_to_read);
 
     u32 entry_count = GetBossExtDataFiles(files_to_read, boss_files.data());
 
@@ -252,7 +255,7 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
         LOG_WARNING(Service_BOSS, "Number of output entries has exceeded maximum");
         entry_count = max_entries;
     }
-
+    boss_files.resize(entry_count);
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
     FileSys::Path boss_path{GetBossDataDir()};
@@ -265,14 +268,14 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
     LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
     auto boss_archive = std::move(archive_result).Unwrap().get();
 
-    for (u32 i = 0; i < entry_count; i++) {
-        if (boss_files[i].is_directory || boss_files[i].file_size < boss_header_length) {
+    for (auto const cur_file : boss_files) {
+        if (cur_file.is_directory || cur_file.file_size < boss_header_length) {
             LOG_WARNING(Service_BOSS, "Directory or too-short file in spotpass extdata");
             continue;
         }
 
         NsDataEntry entry;
-        std::string filename{Common::UTF16ToUTF8(boss_files[i].filename)};
+        std::string filename{Common::UTF16ToUTF8(cur_file.filename)};
         FileSys::Path file_path = ("/" + filename).c_str();
         LOG_DEBUG(Service_BOSS, "Spotpass filename={}", filename);
         entry.filename = filename;
@@ -318,10 +321,10 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
         }
         LOG_DEBUG(Service_BOSS, "Datatype is {:#010X}", entry.header.datatype);
         // Check the payload size is correct, excluding header
-        if (entry.header.payload_size != boss_files[i].file_size - 0x34) {
+        if (entry.header.payload_size != cur_file.file_size - 0x34) {
             LOG_WARNING(Service_BOSS,
                         "Mismatched file size, was expecting {:#010X}, found {:#010X}",
-                        entry.header.payload_size, boss_files[i].file_size - 0x34);
+                        entry.header.payload_size, cur_file.file_size - 0x34);
             continue;
         }
         LOG_DEBUG(Service_BOSS, "Payload size is {:#010X}", entry.header.payload_size);
@@ -365,9 +368,9 @@ u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
 u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries(max_entries);
     std::vector<u32> output_entries;
-    for (u32 i = 0; i < ns_data.size(); i++) {
-        const u16 datatype_high = static_cast<u16>(ns_data[i].header.datatype >> 16);
-        const u16 datatype_low = static_cast<u16>(ns_data[i].header.datatype & 0xFFFF);
+    for (NsDataEntry cur_entry : ns_data) {
+        const u16 datatype_high = static_cast<u16>(cur_entry.header.datatype >> 16);
+        const u16 datatype_low = static_cast<u16>(cur_entry.header.datatype & 0xFFFF);
         const u16 filter_high = static_cast<u16>(filter >> 16);
         const u16 filter_low = static_cast<u16>(filter & 0xFFFF);
         if (filter != 0xFFFFFFFF &&
@@ -375,10 +378,10 @@ u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
             LOG_DEBUG(
                 Service_BOSS,
                 "Filtered out NsDataID {:#010X}; failed filter {:#010X} with datatype {:#010X}",
-                ns_data[i].header.ns_data_id, filter, ns_data[i].header.datatype);
+                cur_entry.header.ns_data_id, filter, cur_entry.header.datatype);
             continue;
         }
-        output_entries.push_back(ns_data[i].header.ns_data_id);
+        output_entries.push_back(cur_entry.header.ns_data_id);
     }
     buffer->Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
     LOG_DEBUG(Service_BOSS, "{} usable entries returned", output_entries.size());
@@ -474,6 +477,8 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
 }
 
 bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
+    file_name.resize(strnlen(file_name.c_str(), file_name.size()));
+    url.resize(strnlen(url.c_str(), url.size()));
 #ifdef ENABLE_WEB_SERVICE
     size_t scheme_end = url.find("://") + 3;
     std::string scheme = url.substr(0, scheme_end);
@@ -604,6 +609,35 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     std::memcpy(payload.data(),
                 decrypted_data.data() + boss_content_header_length + boss_header_with_hash_length,
                 payload_size);
+
+    FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
+        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
+
+    FileSys::Path boss_path{GetBossDataDir()};
+
+    auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
+    if (!archive_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Extdata opening failed");
+    }
+    LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
+    auto boss_archive = std::move(archive_result).Unwrap().get();
+    // Temporarily also write raw data
+    FileSys::Path raw_file_path = ("/" + file_name + "_raw_data").c_str();
+    auto raw_create_result = boss_archive->CreateFile(raw_file_path, decrypted_data.size());
+    if (raw_create_result.is_error) {
+        LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
+    }
+    FileSys::Mode raw_open_mode = {};
+    raw_open_mode.write_flag.Assign(1);
+    auto raw_file_result = boss_archive->OpenFile(raw_file_path, raw_open_mode);
+    if (!raw_file_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Could not open spotpass file for writing");
+        return false;
+    }
+    auto raw_file = std::move(raw_file_result).Unwrap();
+    raw_file->Write(0, decrypted_data.size(), true, decrypted_data.data());
+    raw_file->Close();
+    // end raw data block
     u64 program_id = 0;
     Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
     if (program_id != header.program_id) {
@@ -618,19 +652,6 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
         }
         return false;
     }
-
-    FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
-        FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
-
-    FileSys::Path boss_path{GetBossDataDir()};
-
-    auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
-    if (!archive_result.Succeeded()) {
-        LOG_WARNING(Service_BOSS, "Extdata opening failed");
-    }
-    LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
-    auto boss_archive = std::move(archive_result).Unwrap().get();
-
     FileSys::Path file_path = ("/" + file_name).c_str();
     auto create_result = boss_archive->CreateFile(file_path, boss_header_length + payload_size);
     if (create_result.is_error) {
@@ -655,23 +676,6 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     file->Write(0, boss_header_length, true, (u8*)&header);
     file->Write(boss_header_length, payload_size, true, payload.data());
     file->Close();
-    // Temporarily also write raw data
-    FileSys::Path raw_file_path = "/raw_data";
-    auto raw_create_result = boss_archive->CreateFile(raw_file_path, decrypted_data.size());
-    if (raw_create_result.is_error) {
-        LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
-    }
-    FileSys::Mode raw_open_mode = {};
-    raw_open_mode.write_flag.Assign(1);
-    auto raw_file_result = boss_archive->OpenFile(raw_file_path, raw_open_mode);
-    if (!raw_file_result.Succeeded()) {
-        LOG_WARNING(Service_BOSS, "Could not open spotpass file for writing");
-        return false;
-    }
-    auto raw_file = std::move(raw_file_result).Unwrap();
-    raw_file->Write(0, decrypted_data.size(), true, decrypted_data.data());
-    raw_file->Close();
-    // end raw data block
     return true;
 #else
     LOG_ERROR(Service_BOSS, "Cannot download data as web services are not enabled");
@@ -693,14 +697,18 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         buffer.Read(&property, 0, size);
         LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#010X}", property_id, property);
     } else {
+        if (property_id == 0x0007) {
+            if (size != sizeof(cur_props.x7)) {
+                LOG_WARNING(Service_BOSS, "Property {:#06X} is {}, was expecting {}", property_id,
+                            size, sizeof(cur_props.x7));
+            } else {
+                buffer.Read(cur_props.x7, 0, size);
+            }
+        }
         std::string property(size, 0);
         buffer.Read(property.data(), 0, size);
 
         LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {}", property_id, property);
-        if (property_id == 0x0007) {
-            property.resize(strnlen(property.c_str(), property.size()));
-            current_url = property;
-        }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
@@ -753,14 +761,17 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
         // dummy.copy(task_id_buffer.data(),8,0);
         // dummy2.copy(task_id_buffer.data()+8,8,0);
         // buffer.Write(task_id_buffer.data(),0,size);
-        for (size_t i = 0; i < task_id_list.size(); i++) {
-            if (task_id_list[i].size() > task_id_size || i * task_id_size + task_id_size > 0x400) {
+        for (auto const& iter : task_id_list) {
+            std::string cur_task_id = iter.first;
+            if (cur_task_id.size() > task_id_size ||
+                num_returned_task_ids * task_id_size + task_id_size > 0x400) {
                 LOG_WARNING(Service_BOSS, "task id {} too long or would write past buffer",
-                            task_id_list[i]);
+                            cur_task_id);
             } else {
-                buffer.Write(task_id_list[i].data(), i * task_id_size, task_id_size);
+                buffer.Write(cur_task_id.data(), num_returned_task_ids * task_id_size,
+                             task_id_size);
                 num_returned_task_ids++;
-                LOG_DEBUG(Service_BOSS, "wrote task id {}", task_id_list[i]);
+                LOG_DEBUG(Service_BOSS, "wrote task id {}", cur_task_id);
             }
         }
         LOG_DEBUG(Service_BOSS, "wrote out {} task ids", num_returned_task_ids);
@@ -855,6 +866,7 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     auto& buffer = rp.PopMappedBuffer();
 
     u8 task_status = 0;
+    // u32 duration = 30;
 
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
@@ -862,11 +874,22 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        if (std::find(task_id_list.begin(), task_id_list.end(), task_id) == task_id_list.end()) {
+        if (!task_id_list.contains(task_id)) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
         } else {
-            task_status = 2;
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
+            if (!task_id_list[task_id].been_checked) {
+                LOG_DEBUG(Service_BOSS, "Emulating task just started");
+                task_status = 5;
+                task_id_list[task_id].been_checked = true;
+            } else {
+                if (task_id_list[task_id].success) {
+                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                } else {
+                    LOG_WARNING(Service_BOSS, "Task failed");
+                    // task_status = 7;
+                }
+            }
         }
     }
 
@@ -888,11 +911,17 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
     } else {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
-        task_id.resize(strnlen(task_id.c_str(), task_id.size()));
-        if (DownloadBossDataFromURL(current_url, task_id)) {
-            LOG_DEBUG(Service_BOSS, "Downloaded from {} successfully", current_url);
+        if (!task_id_list.contains(task_id)) {
+            LOG_WARNING(Service_BOSS, "Task Id {} not found", task_id);
         } else {
-            LOG_WARNING(Service_BOSS, "Failed to download from {}", current_url);
+            task_id_list[task_id].been_checked = false;
+            std::string url((char*)task_id_list[task_id].x7, sizeof(task_id_list[task_id].x7));
+            if (DownloadBossDataFromURL(url, task_id)) {
+                LOG_DEBUG(Service_BOSS, "Downloaded from {} successfully", url);
+                task_id_list[task_id].success = true;
+            } else {
+                LOG_WARNING(Service_BOSS, "Failed to download from {}", url);
+            }
         }
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
     }
@@ -960,14 +989,42 @@ void Module::Interface::GetTaskFinishHandle(Kernel::HLERequestContext& ctx) {
 void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x20, 2, 2);
     const u32 size = rp.Pop<u32>();
-    const u8 state = rp.Pop<u8>();
+    const s8 state = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
+
+    u8 task_status = 0;
+    u32 duration = 30;
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+        if (!task_id_list.contains(task_id)) {
+            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+        } else {
+            LOG_DEBUG(Service_BOSS, "Found currently running task id");
+            if (!task_id_list[task_id].been_checked) {
+                LOG_DEBUG(Service_BOSS, "Emulating task just started");
+                task_status = 5;
+                task_id_list[task_id].been_checked = true;
+            } else {
+                if (task_id_list[task_id].success) {
+                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                } else {
+                    LOG_WARNING(Service_BOSS, "Task failed");
+                    //  task_status = 7;
+                }
+            }
+        }
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(4, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(0);  /// TaskStatus
-    rb.Push<u32>(0); /// Current state value for task PropertyID 0x4
-    rb.Push<u8>(0);  /// unknown, usually 0
+    rb.Push<u8>(task_status); /// TaskStatus
+    rb.Push<u32>(duration);   /// Current state value for task PropertyID 0x4
+    rb.Push<u8>(0);           /// unknown, usually 0
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, state={:#06X}", size, state);
@@ -978,11 +1035,40 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    u8 task_status = 0;
+    u32 duration = 30;
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+        if (!task_id_list.contains(task_id)) {
+            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+        } else {
+            LOG_DEBUG(Service_BOSS, "Found currently running task id");
+            if (!task_id_list[task_id].been_checked) {
+                LOG_DEBUG(Service_BOSS, "Emulating task just started");
+                task_status = 5;
+                task_id_list[task_id].been_checked = true;
+            } else {
+
+                if (task_id_list[task_id].success) {
+                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                } else {
+                    LOG_WARNING(Service_BOSS, "Task failed");
+                    //  task_status = 7;
+                }
+            }
+        }
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(4, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(0);  // stub 0 (8 bit value)
-    rb.Push<u32>(0); // stub 0 (32 bit value)
-    rb.Push<u8>(0);  // stub 0 (8 bit value)
+    rb.Push<u8>(task_status); // stub 0 (8 bit value)
+    rb.Push<u32>(duration);   // stub 0 (32 bit value)
+    rb.Push<u8>(0);           // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -992,6 +1078,17 @@ void Module::Interface::GetTaskCommErrorCode(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x22, 1, 2);
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+        if (!task_id_list.contains(task_id)) {
+            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+        }
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(4, 2);
     rb.Push(RESULT_SUCCESS);
@@ -1048,10 +1145,9 @@ void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
 
 bool Module::Interface::GetNsDataEntryFromID(u32 ns_data_id, auto* entry) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
-    for (u32 i = 0; i < ns_data.size(); i++) {
-        NsDataEntry tmp_entry = ns_data[i];
-        if (tmp_entry.header.ns_data_id == ns_data_id) {
-            *entry = tmp_entry;
+    for (auto const cur_entry : ns_data) {
+        if (cur_entry.header.ns_data_id == ns_data_id) {
+            *entry = cur_entry;
             return true;
         }
     }
@@ -1178,8 +1274,6 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     const u64 offset = rp.Pop<u64>();
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
-
-    std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
 
     // This is the error code for NsDataID not found
     u32 result = 0xC8A0F843;
