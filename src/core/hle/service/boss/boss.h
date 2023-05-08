@@ -73,6 +73,42 @@ struct NsDataEntry {
 
 const u8 task_id_size = 8;
 
+struct BossTaskProperties {
+    bool success;
+    bool been_checked;
+    u8 x0;
+    u8 x1;
+    u32 x2;
+    u32 x3;
+    u32 x4;
+    u8 x5;
+    u8 x6;
+    u8 x7[0x200];
+    u32 x8;
+    u8 x9;
+    u8 xA[0x100];
+    u8 xB[0x200];
+    u32 xC;
+    u8 xD[0x360];
+    u32 xE;
+    u32 xF[3];
+    u8 x10;
+    u8 x11;
+    u8 x12;
+    u32 x13;
+    u32 x14;
+    u8 x15[0x40];
+    u32 x16;
+    u8 x18;
+    u8 x19;
+    u8 x1A;
+    u32 x1B;
+    u32 x1C;
+    u32 x3B;
+    u8 x3E[0x200];
+    u8 x3F;
+};
+
 class Module final {
 public:
     explicit Module(Core::System& system);
@@ -1019,8 +1055,8 @@ public:
         u8 ns_data_new_flag;
         u8 ns_data_new_flag_privileged;
         u8 output_flag;
-        std::vector<std::string> task_id_list;
-        std::string current_url;
+        std::map<std::string, BossTaskProperties> task_id_list;
+        BossTaskProperties cur_props;
 
         auto GetBossDataDir();
         bool DownloadBossDataFromURL(std::string url, std::string file_name);
