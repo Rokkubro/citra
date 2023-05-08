@@ -181,7 +181,9 @@ void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        if (std::erase(task_id_list, task_id) == 0) {
+        size_t orig_size = task_id_list.size();
+        std::erase(task_id_list, task_id);
+        if (task_id_list.size() == orig_size) {
             LOG_WARNING(Service_BOSS, "Task Id not in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Task Id erased");
