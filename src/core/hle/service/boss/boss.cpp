@@ -15,6 +15,7 @@
 #undef CreateFile
 #endif
 #endif
+#include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/directory_backend.h"
@@ -268,7 +269,7 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
     LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
     auto boss_archive = std::move(archive_result).Unwrap().get();
 
-    for (auto const cur_file : boss_files) {
+    for (auto const& cur_file : boss_files) {
         if (cur_file.is_directory || cur_file.file_size < boss_header_length) {
             LOG_WARNING(Service_BOSS, "Directory or too-short file in spotpass extdata");
             continue;
@@ -368,7 +369,7 @@ u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
 u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries(max_entries);
     std::vector<u32> output_entries;
-    for (NsDataEntry cur_entry : ns_data) {
+    for (auto const& cur_entry : ns_data) {
         const u16 datatype_high = static_cast<u16>(cur_entry.header.datatype >> 16);
         const u16 datatype_low = static_cast<u16>(cur_entry.header.datatype & 0xFFFF);
         const u16 filter_high = static_cast<u16>(filter >> 16);
@@ -1145,7 +1146,7 @@ void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
 
 bool Module::Interface::GetNsDataEntryFromID(u32 ns_data_id, auto* entry) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
-    for (auto const cur_entry : ns_data) {
+    for (auto const& cur_entry : ns_data) {
         if (cur_entry.header.ns_data_id == ns_data_id) {
             *entry = cur_entry;
             return true;
