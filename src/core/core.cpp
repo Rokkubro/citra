@@ -2,7 +2,6 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <fstream>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -323,9 +322,6 @@ System::ResultStatus System::Load(Frontend::EmuWindow& emu_window, const std::st
     if (Settings::values.custom_textures) {
         custom_tex_manager->FindCustomTextures();
     }
-    if (Settings::values.preload_textures) {
-        custom_tex_manager->PreloadTextures();
-    }
     if (Settings::values.dump_textures) {
         custom_tex_manager->WriteConfig();
     }
@@ -377,6 +373,7 @@ System::ResultStatus System::Init(Frontend::EmuWindow& emu_window,
         *memory, *timing, [this] { PrepareReschedule(); }, system_mode, num_cores, n3ds_mode);
 
     exclusive_monitor = MakeExclusiveMonitor(*memory, num_cores);
+    cpu_cores.reserve(num_cores);
     if (Settings::values.use_cpu_jit) {
 #if CITRA_ARCH(x86_64) || CITRA_ARCH(arm64)
         for (u32 i = 0; i < num_cores; ++i) {
@@ -554,6 +551,7 @@ void System::Shutdown(bool is_deserializing) {
         cheat_engine.reset();
         app_loader.reset();
     }
+    custom_tex_manager.reset();
     telemetry_session.reset();
     rpc_server.reset();
     archive_manager.reset();

@@ -13,7 +13,6 @@
 #include "citra_qt/hotkeys.h"
 #include "common/announce_multiplayer_room.h"
 #include "core/core.h"
-#include "core/hle/service/am/am.h"
 #include "core/savestate.h"
 
 #ifdef __unix__
@@ -50,12 +49,20 @@ class RegistersWidget;
 class Updater;
 class WaitTreeWidget;
 
+namespace Camera {
+class QtMultimediaCameraHandlerFactory;
+}
+
 namespace DiscordRPC {
 class DiscordInterface;
 }
 
 namespace Ui {
 class MainWindow;
+}
+
+namespace Service::AM {
+enum class InstallStatus : u32;
 }
 
 class GMainWindow : public QMainWindow {
@@ -331,6 +338,8 @@ private:
     QStringList default_theme_paths;
 
     HotkeyRegistry hotkey_registry;
+
+    std::shared_ptr<Camera::QtMultimediaCameraHandlerFactory> qt_cameras;
 
 #ifdef __unix__
     QDBusObjectPath wake_lock{};

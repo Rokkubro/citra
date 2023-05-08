@@ -23,6 +23,7 @@
 #include "input_common/keyboard.h"
 #include "input_common/main.h"
 #include "input_common/motion_emu.h"
+#include "video_core/custom_textures/custom_tex_manager.h"
 #include "video_core/renderer_base.h"
 #include "video_core/video_core.h"
 
@@ -60,10 +61,17 @@ static GMainWindow* GetMainWindow() {
 void EmuThread::run() {
     MicroProfileOnThreadCreate("EmuThread");
     const auto scope = core_context.Acquire();
+    Core::System& system = Core::System::GetInstance();
+
+    if (Settings::values.preload_textures) {
+        emit LoadProgress(VideoCore::LoadCallbackStage::Preload, 0, 0);
+        system.CustomTexManager().PreloadTextures(
+            stop_run, [this](VideoCore::LoadCallbackStage stage, std::size_t value,
+                             std::size_t total) { emit LoadProgress(stage, value, total); });
+    }
 
     emit LoadProgress(VideoCore::LoadCallbackStage::Prepare, 0, 0);
 
-    Core::System& system = Core::System::GetInstance();
     system.Renderer().Rasterizer()->LoadDiskResources(
         stop_run, [this](VideoCore::LoadCallbackStage stage, std::size_t value, std::size_t total) {
             emit LoadProgress(stage, value, total);
@@ -533,7 +541,7 @@ void GRenderWindow::mouseReleaseEvent(QMouseEvent* event) {
 
 void GRenderWindow::TouchBeginEvent(const QTouchEvent* event) {
     // TouchBegin always has exactly one touch point, so take the .first()
-    const auto [x, y] = ScaleTouch(event->touchPoints().first().pos());
+    const auto [x, y] = ScaleTouch(event->points().first().position());
     this->TouchPressed(x, y);
 }
 
@@ -542,10 +550,10 @@ void GRenderWindow::TouchUpdateEvent(const QTouchEvent* event) {
     int active_points = 0;
 
     // average all active touch points
-    for (const auto& tp : event->touchPoints()) {
+    for (const auto& tp : event->points()) {
         if (tp.state() & (Qt::TouchPointPressed | Qt::TouchPointMoved | Qt::TouchPointStationary)) {
             active_points++;
-            pos += tp.pos();
+            pos += tp.position();
         }
     }
 
