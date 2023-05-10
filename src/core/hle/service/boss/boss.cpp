@@ -478,8 +478,6 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
 }
 
 bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
-    file_name.resize(strnlen(file_name.c_str(), file_name.size()));
-    url.resize(strnlen(url.c_str(), url.size()));
 #ifdef ENABLE_WEB_SERVICE
     size_t scheme_end = url.find("://") + 3;
     std::string scheme = url.substr(0, scheme_end);
@@ -689,27 +687,169 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     const u16 property_id = rp.Pop<u16>();
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
-    if (size == 1) {
-        u8 property = 0;
-        buffer.Read(&property, 0, size);
-        LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#06X}", property_id, property);
-    } else if (size == 4) {
-        u32 property = 0;
-        buffer.Read(&property, 0, size);
-        LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#010X}", property_id, property);
-    } else {
-        if (property_id == 0x0007) {
-            if (size != sizeof(cur_props.x7)) {
-                LOG_WARNING(Service_BOSS, "Property {:#06X} is {}, was expecting {}", property_id,
-                            size, sizeof(cur_props.x7));
-            } else {
-                buffer.Read(cur_props.x7, 0, size);
-            }
-        }
-        std::string property(size, 0);
-        buffer.Read(property.data(), 0, size);
+    // if (size == 1) {
+    //     u8 property = 0;
+    //     buffer.Read(&property, 0, size);
+    //     LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#06X}", property_id, property);
+    // } else if (size == 4) {
+    //     u32 property = 0;
+    //     buffer.Read(&property, 0, size);
+    //     LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#010X}", property_id,
+    //     property);
+    // } else {
+    //     if (property_id == 0x0007) {
+    //         if (size != sizeof(cur_props.x7)) {
+    //             LOG_WARNING(Service_BOSS, "Property {:#06X} is {}, was expecting {}",
+    //             property_id,
+    //                         size, sizeof(cur_props.x7));
+    //         } else {
+    //             buffer.Read(cur_props.x7, 0, size);
+    //         }
+    //     }
+    //     std::string property(size, 0);
+    //     buffer.Read(property.data(), 0, size);
 
-        LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {}", property_id, property);
+    //    LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {}", property_id, property);
+    //}
+
+    void* cur_prop = NULLPTR;
+    switch (property_id) {
+        // byte-sized properties
+    case 0x0:
+        cur_prop = &cur_props.x0;
+        break;
+    case 0x1:
+        cur_prop = &cur_props.x1;
+        break;
+    case 0x5:
+        cur_prop = &cur_props.x5;
+        break;
+    case 0x6:
+        cur_prop = &cur_props.x6;
+        break;
+    case 0x9:
+        cur_prop = &cur_props.x9;
+        break;
+    case 0x10:
+        cur_prop = &cur_props.x10;
+        break;
+    case 0x11:
+        cur_prop = &cur_props.x11;
+        break;
+    case 0x12:
+        cur_prop = &cur_props.x12;
+        break;
+    case 0x18:
+        cur_prop = &cur_props.x18;
+        break;
+    case 0x19:
+        cur_prop = &cur_props.x19;
+        break;
+    case 0x1A:
+        cur_prop = &cur_props.x1A;
+        break;
+    case 0x3F:
+        cur_prop = &cur_props.x3F;
+    }
+    if (cur_prop != NULLPTR) {
+        if (size != sizeof(u8)) {
+            LOG_WARNING(Service_BOSS, "Property Id {:#06X} expects size of {}, found {}",
+                        property_id, sizeof(u8), size);
+        } else {
+            buffer.Read(cur_prop, 0, size);
+            LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#06X}", property_id,
+                      *(u8*)cur_prop);
+        }
+    }
+    cur_prop = NULLPTR;
+    switch (property_id) {
+    // word-sized properties
+    case 0x2:
+        cur_prop = &cur_props.x2;
+        break;
+    case 0x3:
+        cur_prop = &cur_props.x3;
+        break;
+    case 0x4:
+        cur_prop = &cur_props.x4;
+        break;
+    case 0x8:
+        cur_prop = &cur_props.x8;
+        break;
+    case 0xC:
+        cur_prop = &cur_props.xC;
+        break;
+    case 0xE:
+        cur_prop = &cur_props.xE;
+        break;
+    case 0x13:
+        cur_prop = &cur_props.x13;
+        break;
+    case 0x14:
+        cur_prop = &cur_props.x14;
+        break;
+    case 0x16:
+        cur_prop = &cur_props.x16;
+        break;
+    case 0x1B:
+        cur_prop = &cur_props.x1B;
+        break;
+    case 0x1C:
+        cur_prop = &cur_props.x1C;
+        break;
+    case 0x3B:
+        cur_prop = &cur_props.x3B;
+    }
+    if (cur_prop != NULLPTR) {
+
+        if (size != sizeof(u32)) {
+            LOG_WARNING(Service_BOSS, "Property Id {:#06X} expects size of {}, found {}",
+                        property_id, sizeof(u32), size);
+        } else {
+            buffer.Read(cur_prop, 0, size);
+            LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#010X}", property_id,
+                      *(u32*)cur_prop);
+        }
+    }
+    cur_prop = NULLPTR;
+    u32 expected_size = 0;
+    switch (property_id) {
+        // string properties
+    case 0x7:
+        cur_prop = &cur_props.x7;
+        expected_size = 0x200;
+        break;
+    case 0xA:
+        cur_prop = &cur_props.xA;
+        expected_size = 0x100;
+        break;
+    case 0xB:
+        cur_prop = &cur_props.xB;
+        expected_size = 0x200;
+        break;
+    case 0xD:
+        cur_prop = &cur_props.xD;
+        expected_size = 0x360;
+        break;
+    case 0x15:
+        cur_prop = &cur_props.x15;
+        expected_size = 0x40;
+        break;
+    case 0x3E:
+        cur_prop = &cur_props.x3E;
+        expected_size = 0x200;
+        break;
+    }
+    if (cur_prop != NULLPTR) {
+
+        if (size != expected_size) {
+            LOG_WARNING(Service_BOSS, "Property Id {:#06X} expects size of {}, found {}",
+                        property_id, expected_size, size);
+        } else {
+            buffer.Read(cur_prop, 0, size);
+            LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {}", property_id,
+                      std::string((char*)cur_prop, size));
+        }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
@@ -737,31 +877,24 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
     auto& buffer = rp.PopMappedBuffer();
 
     u32 result = 1;
-    // string length of 7 is expected.
-    //  std::string dummy = "Quartz0";
-    //  std::string dummy2 = "Quartz1";
-    u16 task_id_list_size = 0;
     u16 num_returned_task_ids = 0;
 
     switch (property_id) {
     case 0x35:
         if (size != 0x2) {
             LOG_WARNING(Service_BOSS, "Invalid size {} for property id {}", size, property_id);
-            break;
+        } else {
+            u16 task_id_list_size = static_cast<u16>(task_id_list.size());
+            buffer.Write(&task_id_list_size, 0, size);
+            result = 0;
+            LOG_DEBUG(Service_BOSS, "Wrote out total_tasks {}", task_id_list_size);
         }
-        task_id_list_size = static_cast<u16>(task_id_list.size());
-        buffer.Write(&task_id_list_size, 0, size);
-        result = 0;
-        LOG_DEBUG(Service_BOSS, "Wrote out total_tasks {}", task_id_list_size);
         break;
     case 0x36:
         if (size != 0x400) {
             LOG_WARNING(Service_BOSS, "Invalid size {} for property id {}", size, property_id);
             break;
         }
-        // dummy.copy(task_id_buffer.data(),8,0);
-        // dummy2.copy(task_id_buffer.data()+8,8,0);
-        // buffer.Write(task_id_buffer.data(),0,size);
         for (auto const& iter : task_id_list) {
             std::string cur_task_id = iter.first;
             if (cur_task_id.size() > task_id_size ||
@@ -916,8 +1049,11 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Task Id {} not found", task_id);
         } else {
             task_id_list[task_id].been_checked = false;
-            std::string url((char*)task_id_list[task_id].x7, sizeof(task_id_list[task_id].x7));
-            if (DownloadBossDataFromURL(url, task_id)) {
+            std::string url(
+                (char*)task_id_list[task_id].x7,
+                strnlen((char*)task_id_list[task_id].x7, sizeof(task_id_list[task_id].x7)));
+            std::string file_name(task_id, 0, strnlen(task_id.c_str(), task_id.size()));
+            if (DownloadBossDataFromURL(url, file_name)) {
                 LOG_DEBUG(Service_BOSS, "Downloaded from {} successfully", url);
                 task_id_list[task_id].success = true;
             } else {
