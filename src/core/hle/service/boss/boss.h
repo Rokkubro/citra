@@ -72,7 +72,7 @@ struct NsDataEntry {
 };
 
 const u8 task_id_size = 8;
-
+#pragma pack(push, 1)
 struct BossTaskProperties {
     bool success;
     bool been_checked;
@@ -108,6 +108,8 @@ struct BossTaskProperties {
     u8 x3E[0x200];
     u8 x3F;
 };
+#pragma pack(pop)
+static_assert(sizeof(BossTaskProperties) == 0xAEA, "BossTaskProperties struct isn't exactly 0xAEA bytes long!");
 
 class Module final {
 public:
