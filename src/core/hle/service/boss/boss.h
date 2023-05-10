@@ -109,7 +109,8 @@ struct BossTaskProperties {
     u8 x3F;
 };
 #pragma pack(pop)
-static_assert(sizeof(BossTaskProperties) == 0xAEA, "BossTaskProperties struct isn't exactly 0xAEA bytes long!");
+static_assert(sizeof(BossTaskProperties) == 0xAEA,
+              "BossTaskProperties struct isn't exactly 0xAEA bytes long!");
 
 class Module final {
 public:
