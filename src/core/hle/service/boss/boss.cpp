@@ -2,15 +2,12 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include <cryptopp/aes.h>
-#include <cryptopp/modes.h>
+#include "core/file_sys/errors.h"
+// Needed to prevent conflicts with system macros when httplib is included on windows
+ResultCode error_file_not_found = FileSys::ERROR_NOT_FOUND;
 #ifdef ENABLE_WEB_SERVICE
 #if defined(__ANDROID__)
 #include <ifaddrs.h>
-#endif
-#ifdef WIN32
-// Needed to prevent conflicts with system macros when httplib is included on windows
-#define _WINERROR_
 #endif
 #include <httplib.h>
 #ifdef WIN32
@@ -20,11 +17,12 @@
 #endif
 #endif
 #include <core/file_sys/archive_systemsavedata.h>
+#include <cryptopp/aes.h>
+#include <cryptopp/modes.h>
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/directory_backend.h"
-#include "core/file_sys/errors.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/service/boss/boss.h"
@@ -41,12 +39,12 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
 
     cur_props = BossTaskProperties();
     // I'm putting this here for now because I don't know where else to put it;
-    // the BOSS service saves data in its BOSS_A(Archive? A list of program ids and some properties
-    // that are keyed on program), BOSS_SS (Saved Strings? Includes the url and the other string
-    // properties, and also some other properties?, keyed on task_id) and BOSS_SV (Saved Values?
-    // Includes task id and most properties, keyed on task_id) databases in the following format: A
-    // four byte header (always 00 80 34 12?) followed by any number of 0x800(BOSS_A) and
-    // 0xC00(BOSS_SS and BOSS_SV) entries.
+    // the BOSS service saves data in its BOSS_A(Archive? A list of program ids and some
+    // properties that are keyed on program), BOSS_SS (Saved Strings? Includes the url and the
+    // other string properties, and also some other properties?, keyed on task_id) and BOSS_SV
+    // (Saved Values? Includes task id and most properties, keyed on task_id) databases in the
+    // following format: A four byte header (always 00 80 34 12?) followed by any number of
+    // 0x800(BOSS_A) and 0xC00(BOSS_SS and BOSS_SV) entries.
     u64 program_id = 0;
     if (programID == 0) {
         Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
@@ -64,7 +62,7 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     std::unique_ptr<FileSys::ArchiveBackend> boss_system_save_data_archive;
 
     // If the archive didn't exist, create the files inside
-    if (archive_result.Code() == FileSys::ERROR_NOT_FOUND) {
+    if (archive_result.Code() == error_file_not_found) {
         // Format the archive to create the directories
         systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0);
 
@@ -801,7 +799,8 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     // if (size == 1) {
     //     u8 property = 0;
     //     buffer.Read(&property, 0, size);
-    //     LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#06X}", property_id, property);
+    //     LOG_DEBUG(Service_BOSS, "content of property {:#06X} is {:#06X}", property_id,
+    //     property);
     // } else if (size == 4) {
     //     u32 property = 0;
     //     buffer.Read(&property, 0, size);
@@ -1746,8 +1745,8 @@ void Module::Interface::RegisterImmediateTask(Kernel::HLERequestContext& ctx) {
         rb.Push(RESULT_SUCCESS);
         rb.PushMappedBuffer(buffer);
 
-        LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
-                    size, unk_param2, unk_param3); */
+        LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X},
+       unk_param3={:#04X}", size, unk_param2, unk_param3); */
 
     LOG_WARNING(Service_BOSS, "RegisterImmediateTask called");
     // These seem to do the same thing...
@@ -1920,10 +1919,10 @@ void Module::Interface::SetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(
-        Service_BOSS,
-        "(STUBBED) programID={:#018X}, unk_param1={:#010X}, ns_data_new_flag_privileged={:#04X}",
-        programID, unk_param1, ns_data_new_flag_privileged);
+    LOG_WARNING(Service_BOSS,
+                "(STUBBED) programID={:#018X}, unk_param1={:#010X}, "
+                "ns_data_new_flag_privileged={:#04X}",
+                programID, unk_param1, ns_data_new_flag_privileged);
 }
 
 void Module::Interface::GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ctx) {
@@ -1935,10 +1934,10 @@ void Module::Interface::GetNsDataNewFlagPrivileged(Kernel::HLERequestContext& ct
     rb.Push(RESULT_SUCCESS);
     rb.Push<u8>(ns_data_new_flag_privileged);
 
-    LOG_WARNING(
-        Service_BOSS,
-        "(STUBBED) programID={:#018X}, unk_param1={:#010X}, ns_data_new_flag_privileged={:#04X}",
-        programID, unk_param1, ns_data_new_flag_privileged);
+    LOG_WARNING(Service_BOSS,
+                "(STUBBED) programID={:#018X}, unk_param1={:#010X}, "
+                "ns_data_new_flag_privileged={:#04X}",
+                programID, unk_param1, ns_data_new_flag_privileged);
 }
 
 Module::Interface::Interface(std::shared_ptr<Module> boss, const char* name, u32 max_session)
