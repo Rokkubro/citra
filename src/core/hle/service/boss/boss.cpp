@@ -8,17 +8,23 @@
 #if defined(__ANDROID__)
 #include <ifaddrs.h>
 #endif
+#ifdef WIN32
+// Needed to prevent conflicts with system macros when httplib is included on windows
+#define _WINERROR_
+#endif
 #include <httplib.h>
 #ifdef WIN32
-// Needed to prevent conflicts with macros when httplib is included on windows
+// Needed to prevent conflicts with system macros when httplib is included on windows
 #undef CreateEvent
 #undef CreateFile
 #endif
 #endif
+#include <core/file_sys/archive_systemsavedata.h>
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/directory_backend.h"
+#include "core/file_sys/errors.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/service/boss/boss.h"
@@ -34,6 +40,116 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     rp.PopPID();
 
     cur_props = BossTaskProperties();
+    // I'm putting this here for now because I don't know where else to put it;
+    // the BOSS service saves data in its BOSS_A(Archive? A list of program ids and some properties
+    // that are keyed on program), BOSS_SS (Saved Strings? Includes the url and the other string
+    // properties, and also some other properties?, keyed on task_id) and BOSS_SV (Saved Values?
+    // Includes task id and most properties, keyed on task_id) databases in the following format: A
+    // four byte header (always 00 80 34 12?) followed by any number of 0x800(BOSS_A) and
+    // 0xC00(BOSS_SS and BOSS_SV) entries.
+    u64 program_id = 0;
+    if (programID == 0) {
+        Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
+    } else {
+        program_id = programID;
+    }
+
+    const std::string& nand_directory = FileUtil::GetUserPath(FileUtil::UserPath::NANDDir);
+    FileSys::ArchiveFactory_SystemSaveData systemsavedata_factory(nand_directory);
+
+    // Open the SystemSaveData archive 0x00010034
+    FileSys::Path archive_path(boss_system_savedata_id);
+    auto archive_result = systemsavedata_factory.Open(archive_path, 0);
+
+    std::unique_ptr<FileSys::ArchiveBackend> boss_system_save_data_archive;
+
+    // If the archive didn't exist, create the files inside
+    if (archive_result.Code() == FileSys::ERROR_NOT_FOUND) {
+        // Format the archive to create the directories
+        systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0);
+
+        // Open it again to get a valid archive now that the folder exists
+        boss_system_save_data_archive = systemsavedata_factory.Open(archive_path, 0).Unwrap();
+    } else if (!archive_result.Succeeded()) {
+        LOG_ERROR(Service_BOSS, "could not open boss savedata");
+    } else {
+        ASSERT_MSG(archive_result.Succeeded(), "Could not open the BOSS SystemSaveData archive!");
+
+        boss_system_save_data_archive = std::move(archive_result).Unwrap();
+    }
+
+    FileSys::Path boss_a_path("/BOSS_A.db");
+    FileSys::Mode open_mode = {};
+    open_mode.read_flag.Assign(1);
+
+    auto boss_a_result = boss_system_save_data_archive->OpenFile(boss_a_path, open_mode);
+
+    // Read the file if it already exists
+    if (boss_a_result.Succeeded()) {
+        auto boss_a = std::move(boss_a_result).Unwrap();
+        if (boss_a->GetSize() > boss_save_header_size &&
+            ((boss_a->GetSize() - boss_save_header_size) % boss_a_entry_size) == 0) {
+            u64 num_entries = (boss_a->GetSize() - boss_save_header_size) / boss_a_entry_size;
+            for (u64 i = 0; i < num_entries; i++) {
+                u64 prog_id;
+                boss_a->Read(i * boss_a_entry_size + boss_save_header_size, sizeof(prog_id),
+                             (u8*)&prog_id);
+                LOG_DEBUG(Service_BOSS, "id in entry {} is {:#018X}", i, prog_id);
+            }
+        }
+    }
+    FileSys::Path boss_sv_path("/BOSS_SV.db");
+
+    auto boss_sv_result = boss_system_save_data_archive->OpenFile(boss_sv_path, open_mode);
+
+    FileSys::Path boss_ss_path("/BOSS_SS.db");
+
+    auto boss_ss_result = boss_system_save_data_archive->OpenFile(boss_ss_path, open_mode);
+
+    // Read the files if they already exists
+    if (boss_sv_result.Succeeded() && boss_ss_result.Succeeded()) {
+        auto boss_sv = std::move(boss_sv_result).Unwrap();
+        auto boss_ss = std::move(boss_ss_result).Unwrap();
+        if (boss_sv->GetSize() > boss_save_header_size &&
+            ((boss_sv->GetSize() - boss_save_header_size) % boss_s_entry_size) == 0 &&
+            boss_sv->GetSize() == boss_ss->GetSize()) {
+            u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
+            for (u64 i = 0; i < num_entries; i++) {
+                u64 prog_id;
+                const u64 prog_id_offset = 0x10;
+                boss_sv->Read(i * boss_s_entry_size + boss_save_header_size + prog_id_offset,
+                              sizeof(prog_id), (u8*)&prog_id);
+                LOG_DEBUG(Service_BOSS, "id sv in entry {} is {:#018X}", i, prog_id);
+                std::string task_id(task_id_size, 0);
+                const u64 task_id_offset = 0x18;
+                boss_sv->Read(i * boss_s_entry_size + boss_save_header_size + task_id_offset,
+                              task_id_size, (u8*)task_id.data());
+                size_t task_id_len = strnlen(task_id.c_str(), task_id_size);
+                task_id.resize(task_id_len < task_id_size ? task_id_len + 1 : task_id_size);
+                LOG_DEBUG(Service_BOSS, "task id in entry {} is {}", i,
+                          std::string(task_id, 0, task_id.size() - 1));
+                std::string url(sizeof(cur_props.x7), 0);
+                const u64 url_offset = 0x21C;
+                boss_ss->Read(i * boss_s_entry_size + boss_save_header_size + url_offset,
+                              sizeof(cur_props.x7), (u8*)url.data());
+                size_t url_len = strnlen(url.c_str(), url.size());
+                url.resize(url_len < url.size() ? url_len + 1 : url.size());
+                LOG_DEBUG(Service_BOSS, "url for task {} is {}",
+                          std::string(task_id, 0, task_id.size() - 1),
+                          std::string(url, 0, url.size() - 1));
+                if (prog_id == program_id) {
+                    LOG_DEBUG(Service_BOSS, "storing for this session");
+                    std::memcpy(cur_props.x7, url.data(), sizeof(cur_props.x7));
+                    if (task_id_list.contains(task_id)) {
+                        LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
+                        task_id_list.erase(task_id);
+                    }
+                    task_id_list.emplace(task_id, cur_props);
+                    cur_props = BossTaskProperties();
+                }
+            }
+        }
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -148,11 +264,6 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
     const u8 unk_param2 = rp.Pop<u8>();
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
-
-    // I'm putting this here for now because I don't know where else to put it;
-    // the BOSS service saves data in its BOSS_A, BOSS_SS and BOSS_SV databases in the following
-    // format: A four byte header followed by any number of 0x800(BOSS_A) and 0xC00(BOSS_SS and
-    // BOSS_SV) entries.
 
     std::string task_id(size, 0);
     buffer.Read(task_id.data(), 0, size);

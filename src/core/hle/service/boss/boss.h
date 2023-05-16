@@ -65,6 +65,9 @@ static_assert(sizeof(BossPayloadHeader) == 0x28,
 const u64 boss_content_header_length = 0x132;
 const u64 boss_header_with_hash_length = 0x13C;
 const u64 boss_extdata_header_length = 0x18;
+const u64 boss_a_entry_size = 0x800;
+const u64 boss_s_entry_size = 0xC00;
+const u64 boss_save_header_size = 4;
 
 struct NsDataEntry {
     std::string filename;
@@ -111,6 +114,12 @@ struct BossTaskProperties {
 #pragma pack(pop)
 static_assert(sizeof(BossTaskProperties) == 0xAEA,
               "BossTaskProperties struct isn't exactly 0xAEA bytes long!");
+
+constexpr std::array<u8, 8> boss_system_savedata_id{
+    0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x01, 0x00,
+};
+
+constexpr std::array<u8, 4> boss_system_savedata_header{0x00, 0x80, 0x34, 0x12};
 
 class Module final {
 public:
