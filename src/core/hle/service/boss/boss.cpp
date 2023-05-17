@@ -354,17 +354,13 @@ auto Module::Interface::GetBossDataDir() {
     return FileSys::ConstructExtDataBinaryPath(1, high, low);
 }
 
-std::vector<NsDataEntry> Module::Interface::GetNsDataEntries(u32 max_entries) {
+std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
     std::vector<NsDataEntry> ns_data;
     const u32 files_to_read = 100;
     std::vector<FileSys::Entry> boss_files(files_to_read);
 
     u32 entry_count = GetBossExtDataFiles(files_to_read, boss_files.data());
 
-    if (entry_count > max_entries) {
-        LOG_WARNING(Service_BOSS, "Number of output entries has exceeded maximum");
-        entry_count = max_entries;
-    }
     boss_files.resize(entry_count);
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
@@ -476,7 +472,7 @@ u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
 }
 
 u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
-    std::vector<NsDataEntry> ns_data = GetNsDataEntries(max_entries);
+    std::vector<NsDataEntry> ns_data = GetNsDataEntries();
     std::vector<u32> output_entries;
     for (auto const& cur_entry : ns_data) {
         const u16 datatype_high = static_cast<u16>(cur_entry.header.datatype >> 16);
@@ -490,6 +486,10 @@ u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
                 "Filtered out NsDataID {:#010X}; failed filter {:#010X} with datatype {:#010X}",
                 cur_entry.header.ns_data_id, filter, cur_entry.header.datatype);
             continue;
+        }
+        if (output_entries.size() >= max_entries) {
+            LOG_WARNING(Service_BOSS, "Reached maximum number of entries");
+            break;
         }
         output_entries.push_back(cur_entry.header.ns_data_id);
     }
@@ -1109,7 +1109,9 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    u8 task_status = 0;
+    // Not sure what this is but it's not the task status. Maybe it's the status of the service
+    // after running the task?
+    u8 task_service_status = 1;
     // u32 duration = 30;
 
     if (size > 0x8) {
@@ -1122,24 +1124,18 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            if (!task_id_list[task_id].been_checked) {
-                LOG_DEBUG(Service_BOSS, "Emulating task just started");
-                task_status = 5;
-                task_id_list[task_id].been_checked = true;
+            if (task_id_list[task_id].success) {
+                LOG_DEBUG(Service_BOSS, "Task ran successfully");
             } else {
-                if (task_id_list[task_id].success) {
-                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                } else {
-                    LOG_WARNING(Service_BOSS, "Task failed");
-                    // task_status = 7;
-                }
+                LOG_WARNING(Service_BOSS, "Task failed");
+                // task_status = 7;
             }
         }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(task_status); // stub 0 ( 8bit value) this is taskstatus
+    rb.Push<u8>(task_service_status); // stub 0 ( 8bit value) this is not taskstatus
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -1158,7 +1154,7 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
         if (!task_id_list.contains(task_id)) {
             LOG_WARNING(Service_BOSS, "Task Id {} not found", task_id);
         } else {
-            task_id_list[task_id].been_checked = false;
+            task_id_list[task_id].times_checked = 0;
             std::string url(
                 (char*)task_id_list[task_id].x7,
                 strnlen((char*)task_id_list[task_id].x7, sizeof(task_id_list[task_id].x7)));
@@ -1238,8 +1234,8 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     const s8 state = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
-
     u8 task_status = 0;
+
     u32 duration = 30;
 
     if (size > 0x8) {
@@ -1252,10 +1248,13 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            if (!task_id_list[task_id].been_checked) {
-                LOG_DEBUG(Service_BOSS, "Emulating task just started");
+            duration = task_id_list[task_id].x4;
+            if (task_id_list[task_id].times_checked == 0) {
+                LOG_DEBUG(Service_BOSS, "Emulating task not started");
                 task_status = 5;
-                task_id_list[task_id].been_checked = true;
+            } else if (task_id_list[task_id].times_checked < 200) {
+                LOG_DEBUG(Service_BOSS, "Emulating task running");
+                task_status = 2;
             } else {
                 if (task_id_list[task_id].success) {
                     LOG_DEBUG(Service_BOSS, "Task ran successfully");
@@ -1264,6 +1263,7 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
                     //  task_status = 7;
                 }
             }
+            task_id_list[task_id].times_checked++;
         }
     }
 
@@ -1295,18 +1295,12 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            if (!task_id_list[task_id].been_checked) {
-                LOG_DEBUG(Service_BOSS, "Emulating task just started");
-                task_status = 5;
-                task_id_list[task_id].been_checked = true;
+            duration = task_id_list[task_id].x4;
+            if (task_id_list[task_id].success) {
+                LOG_DEBUG(Service_BOSS, "Task ran successfully");
             } else {
-
-                if (task_id_list[task_id].success) {
-                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                } else {
-                    LOG_WARNING(Service_BOSS, "Task failed");
-                    //  task_status = 7;
-                }
+                LOG_WARNING(Service_BOSS, "Task failed");
+                //  task_status = 7;
             }
         }
     }
@@ -1354,9 +1348,39 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
+    u8 task_status = 0;
+
+    if (size > 0x8) {
+        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+    } else {
+        std::string task_id(size, 0);
+        buffer.Read(task_id.data(), 0, size);
+        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
+        if (!task_id_list.contains(task_id)) {
+            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+        } else {
+            LOG_DEBUG(Service_BOSS, "Found currently running task id");
+            if (task_id_list[task_id].times_checked == 0) {
+                LOG_DEBUG(Service_BOSS, "Emulating task not started");
+                task_status = 5;
+            } else if (task_id_list[task_id].times_checked < 200) {
+                LOG_DEBUG(Service_BOSS, "Emulating task running");
+                task_status = 2;
+            } else {
+                if (task_id_list[task_id].success) {
+                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                } else {
+                    LOG_WARNING(Service_BOSS, "Task failed");
+                    //  task_status = 7;
+                }
+            }
+            task_id_list[task_id].times_checked++;
+        }
+    }
+
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(0); // stub 0 (8 bit value)
+    rb.Push<u8>(task_status); // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
@@ -1391,7 +1415,7 @@ void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
 }
 
 bool Module::Interface::GetNsDataEntryFromID(u32 ns_data_id, auto* entry) {
-    std::vector<NsDataEntry> ns_data = GetNsDataEntries(100);
+    std::vector<NsDataEntry> ns_data = GetNsDataEntries();
     for (auto const& cur_entry : ns_data) {
         if (cur_entry.header.ns_data_id == ns_data_id) {
             *entry = cur_entry;
