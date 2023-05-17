@@ -78,7 +78,7 @@ const u8 task_id_size = 8;
 #pragma pack(push, 1)
 struct BossTaskProperties {
     bool success;
-    bool been_checked;
+    u64 times_checked;
     u8 x0;
     u8 x1;
     u32 x2;
@@ -112,8 +112,8 @@ struct BossTaskProperties {
     u8 x3F;
 };
 #pragma pack(pop)
-static_assert(sizeof(BossTaskProperties) == 0xAEA,
-              "BossTaskProperties struct isn't exactly 0xAEA bytes long!");
+static_assert(sizeof(BossTaskProperties) == 0xAF1,
+              "BossTaskProperties struct isn't exactly 0xAF1 bytes long!");
 
 constexpr std::array<u8, 8> boss_system_savedata_id{
     0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x01, 0x00,
@@ -1072,7 +1072,7 @@ public:
 
         auto GetBossDataDir();
         bool DownloadBossDataFromURL(std::string url, std::string file_name);
-        std::vector<NsDataEntry> GetNsDataEntries(u32 max_entries);
+        std::vector<NsDataEntry> GetNsDataEntries();
         u32 GetBossExtDataFiles(u32 files_to_read, auto* boss_files);
         u16 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
         bool GetNsDataEntryFromID(u32 ns_data_id, auto* entry);
