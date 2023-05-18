@@ -1112,7 +1112,6 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     // Not sure what this is but it's not the task status. Maybe it's the status of the service
     // after running the task?
     u8 task_service_status = 1;
-    // u32 duration = 30;
 
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
@@ -1128,7 +1127,6 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
                 LOG_DEBUG(Service_BOSS, "Task ran successfully");
             } else {
                 LOG_WARNING(Service_BOSS, "Task failed");
-                // task_status = 7;
             }
         }
     }
@@ -1248,6 +1246,7 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
+            // Get the duration from the task if available
             duration = task_id_list[task_id].x4;
             if (task_id_list[task_id].times_checked == 0) {
                 LOG_DEBUG(Service_BOSS, "Emulating task not started");
@@ -1260,7 +1259,7 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
                     LOG_DEBUG(Service_BOSS, "Task ran successfully");
                 } else {
                     LOG_WARNING(Service_BOSS, "Task failed");
-                    //  task_status = 7;
+                    task_status = 7;
                 }
             }
             task_id_list[task_id].times_checked++;
@@ -1295,21 +1294,24 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
+            // Get the duration from the task if available
             duration = task_id_list[task_id].x4;
             if (task_id_list[task_id].success) {
                 LOG_DEBUG(Service_BOSS, "Task ran successfully");
             } else {
                 LOG_WARNING(Service_BOSS, "Task failed");
-                //  task_status = 7;
+                task_status = 7;
             }
         }
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(4, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(task_status); // stub 0 (8 bit value)
-    rb.Push<u32>(duration);   // stub 0 (32 bit value)
-    rb.Push<u8>(0);           // stub 0 (8 bit value)
+    rb.Push<u8>(task_status); // This might be task_status; however it is considered a failure if
+                              // anything other than 0 is returned, apps won't call this method
+                              // unless they have previously determined the task has ended
+    rb.Push<u32>(duration); // stub 0 (32 bit value)
+    rb.Push<u8>(0);         // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -1371,7 +1373,7 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
                     LOG_DEBUG(Service_BOSS, "Task ran successfully");
                 } else {
                     LOG_WARNING(Service_BOSS, "Task failed");
-                    //  task_status = 7;
+                    task_status = 7;
                 }
             }
             task_id_list[task_id].times_checked++;
