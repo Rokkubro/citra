@@ -605,7 +605,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     httplib::Request request{
         .method = "GET",
         .path = path,
-        .matches = Match(),
+        .matches = httplib::Match(),
     };
     LOG_DEBUG(Service_BOSS, "Got client");
     client->set_follow_location(true);
