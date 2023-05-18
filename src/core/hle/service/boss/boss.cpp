@@ -1310,8 +1310,8 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(task_status); // This might be task_status; however it is considered a failure if
                               // anything other than 0 is returned, apps won't call this method
                               // unless they have previously determined the task has ended
-    rb.Push<u32>(duration); // stub 0 (32 bit value)
-    rb.Push<u8>(0);         // stub 0 (8 bit value)
+    rb.Push<u32>(duration);   // stub 0 (32 bit value)
+    rb.Push<u8>(0);           // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
