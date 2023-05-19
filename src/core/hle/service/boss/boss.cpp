@@ -588,6 +588,10 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
 
 bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
 #ifdef ENABLE_WEB_SERVICE
+    if (url.find("://") == url.npos) {
+        LOG_ERROR(Service_BOSS, "Invalid URL {}", url);
+        return false;
+    }
     size_t scheme_end = url.find("://") + 3;
     std::string scheme = url.substr(0, scheme_end);
     LOG_DEBUG(Service_BOSS, "Scheme is {}", scheme);
