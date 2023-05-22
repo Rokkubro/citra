@@ -6,6 +6,7 @@
 
 #include <memory>
 #include <boost/serialization/shared_ptr.hpp>
+#include <core/loader/loader.h>
 #include "core/global.h"
 #include "core/hle/kernel/event.h"
 #include "core/hle/service/service.h"
@@ -19,21 +20,21 @@ namespace Service::BOSS {
 // https://www.3dbrew.org/wiki/SpotPass#Payload_Content_Header
 // So the total header is only 52 bytes long
 
-const u64 boss_header_length = 0x34;
+constexpr u32 boss_header_length = 0x34;
 // 52 bytes doesn't align nicely into 8-byte words
 #pragma pack(push, 4)
 struct BossHeader {
     u8 header_length;
     u8 zero1[11];
-    u32 unknown;
-    u32 download_date;
+    u32_be unknown;
+    u32_be download_date;
     u8 zero2[4];
-    u64 program_id;
+    u64_be program_id;
     u8 zero3[4];
-    u32 datatype;
-    u32 payload_size;
-    u32 ns_data_id;
-    u32 version;
+    u32_be datatype;
+    u32_be payload_size;
+    u32_be ns_data_id;
+    u32_be version;
 };
 #pragma pack(pop)
 
@@ -43,18 +44,20 @@ static_assert(sizeof(BossHeader) == 0x34, "BossHeader struct isn't exactly 0x34 
 // https://www.3dbrew.org/wiki/SpotPass#Content_Container
 // So the total header is only 40 bytes long
 
-const u64 boss_payload_header_length = 0x28;
+constexpr u32 boss_payload_header_length = 0x28;
+constexpr u32 boss_magic = Loader::MakeMagic('b', 'o', 's', 's');
+constexpr u32 boss_payload_magic = 0x10001;
 // 40 bytes doesn't align nicely into 8-byte words either
 #pragma pack(push, 4)
 struct BossPayloadHeader {
-    u8 boss[4];
-    u32 magic;
-    u32 filesize;
-    u64 release_date;
-    u16 one;
-    u8 padding[2];
-    u16 hash_type;
-    u16 rsa_size;
+    u32_le boss;
+    u32_be magic;
+    u32_be filesize;
+    u64_be release_date;
+    u16_be one;
+    INSERT_PADDING_BYTES(2);
+    u16_be hash_type;
+    u16_be rsa_size;
     u8 iv_start[0xC];
 };
 #pragma pack(pop)
@@ -62,41 +65,44 @@ struct BossPayloadHeader {
 static_assert(sizeof(BossPayloadHeader) == 0x28,
               "BossPayloadHeader struct isn't exactly 0x28 bytes long!");
 
-const u64 boss_content_header_length = 0x132;
-const u64 boss_header_with_hash_length = 0x13C;
-const u64 boss_extdata_header_length = 0x18;
-const u64 boss_a_entry_size = 0x800;
-const u64 boss_s_entry_size = 0xC00;
-const u64 boss_save_header_size = 4;
+constexpr u32 boss_content_header_length = 0x132;
+constexpr u32 boss_header_with_hash_length = 0x13C;
+constexpr u32 boss_extdata_header_length = 0x18;
+constexpr u32 boss_a_entry_size = 0x800;
+constexpr u32 boss_s_entry_size = 0xC00;
+constexpr u32 boss_save_header_size = 4;
+constexpr u32 boss_s_prog_id_offset = 0x10;
+constexpr u32 boss_s_task_id_offset = 0x18;
+constexpr u32 boss_s_url_offset = 0x21C;
 
 struct NsDataEntry {
     std::string filename;
     BossHeader header;
 };
 
-const u8 task_id_size = 8;
+constexpr u8 task_id_size = 8;
 #pragma pack(push, 1)
 struct BossTaskProperties {
     bool success;
-    u64 times_checked;
+    u32 times_checked;
     u8 x0;
     u8 x1;
     u32 x2;
-    u32 x3;
-    u32 x4;
+    u32 interval;
+    u32 duration;
     u8 x5;
     u8 x6;
-    u8 x7[0x200];
+    u8 url[0x200];
     u32 x8;
     u8 x9;
     u8 xA[0x100];
     u8 xB[0x200];
     u32 xC;
-    u8 xD[0x360];
-    u32 xE;
-    u32 xF[3];
-    u8 x10;
-    u8 x11;
+    u8 headers[0x360];
+    u32 certid;
+    u32 certidlist[3];
+    u8 loadcert;
+    u8 loadrootcert;
     u8 x12;
     u32 x13;
     u32 x14;
@@ -108,12 +114,12 @@ struct BossTaskProperties {
     u32 x1B;
     u32 x1C;
     u32 x3B;
-    u8 x3E[0x200];
+    u8 uploadstring[0x200];
     u8 x3F;
 };
 #pragma pack(pop)
-static_assert(sizeof(BossTaskProperties) == 0xAF1,
-              "BossTaskProperties struct isn't exactly 0xAF1 bytes long!");
+static_assert(sizeof(BossTaskProperties) == 0xAED,
+              "BossTaskProperties struct isn't exactly 0xAED bytes long!");
 
 constexpr std::array<u8, 8> boss_system_savedata_id{
     0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x01, 0x00,

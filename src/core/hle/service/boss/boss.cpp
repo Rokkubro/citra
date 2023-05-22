@@ -2,9 +2,9 @@
 // Licensed under GPLv2 or any later version
 // Refer to the license.txt file included.
 
-#include "core/file_sys/errors.h"
-// Needed to prevent conflicts with system macros when httplib is included on windows
-ResultCode error_file_not_found = FileSys::ERROR_NOT_FOUND;
+// #include "core/file_sys/errors.h"
+//// Needed to prevent conflicts with system macros when httplib is included on windows
+// ResultCode error_file_not_found = FileSys::ERROR_NOT_FOUND;
 #ifdef ENABLE_WEB_SERVICE
 #if defined(__ANDROID__)
 #include <ifaddrs.h>
@@ -14,8 +14,13 @@ ResultCode error_file_not_found = FileSys::ERROR_NOT_FOUND;
 // Needed to prevent conflicts with system macros when httplib is included on windows
 #undef CreateEvent
 #undef CreateFile
+#undef ERROR_NOT_FOUND
+#undef ERROR_FILE_NOT_FOUND
+#undef ERROR_PATH_NOT_FOUND
+#undef ERROR_ALREADY_EXISTS
 #endif
 #endif
+#include <boost/url/src.hpp>
 #include <core/file_sys/archive_systemsavedata.h>
 #include <cryptopp/aes.h>
 #include <cryptopp/modes.h>
@@ -23,6 +28,7 @@ ResultCode error_file_not_found = FileSys::ERROR_NOT_FOUND;
 #include "core/core.h"
 #include "core/file_sys/archive_extsavedata.h"
 #include "core/file_sys/directory_backend.h"
+#include "core/file_sys/errors.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
 #include "core/hle/service/boss/boss.h"
@@ -62,7 +68,7 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     std::unique_ptr<FileSys::ArchiveBackend> boss_system_save_data_archive;
 
     // If the archive didn't exist, create the files inside
-    if (archive_result.Code() == error_file_not_found) {
+    if (archive_result.Code() == FileSys::ERROR_NOT_FOUND) {
         // Format the archive to create the directories
         systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0);
 
@@ -89,9 +95,9 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
             ((boss_a->GetSize() - boss_save_header_size) % boss_a_entry_size) == 0) {
             u64 num_entries = (boss_a->GetSize() - boss_save_header_size) / boss_a_entry_size;
             for (u64 i = 0; i < num_entries; i++) {
+                u64 entry_offset = i * boss_a_entry_size + boss_save_header_size;
                 u64 prog_id;
-                boss_a->Read(i * boss_a_entry_size + boss_save_header_size, sizeof(prog_id),
-                             (u8*)&prog_id);
+                boss_a->Read(entry_offset, sizeof(prog_id), reinterpret_cast<u8*>(&prog_id));
                 LOG_DEBUG(Service_BOSS, "id in entry {} is {:#018X}", i, prog_id);
             }
         }
@@ -113,23 +119,21 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
             boss_sv->GetSize() == boss_ss->GetSize()) {
             u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
             for (u64 i = 0; i < num_entries; i++) {
+                u64 entry_offset = i * boss_s_entry_size + boss_save_header_size;
                 u64 prog_id;
-                const u64 prog_id_offset = 0x10;
-                boss_sv->Read(i * boss_s_entry_size + boss_save_header_size + prog_id_offset,
-                              sizeof(prog_id), (u8*)&prog_id);
+                boss_sv->Read(entry_offset + boss_s_prog_id_offset, sizeof(prog_id),
+                              reinterpret_cast<u8*>(&prog_id));
                 LOG_DEBUG(Service_BOSS, "id sv in entry {} is {:#018X}", i, prog_id);
                 std::string task_id(task_id_size, 0);
-                const u64 task_id_offset = 0x18;
-                boss_sv->Read(i * boss_s_entry_size + boss_save_header_size + task_id_offset,
-                              task_id_size, (u8*)task_id.data());
+                boss_sv->Read(entry_offset + boss_s_task_id_offset, task_id_size,
+                              reinterpret_cast<u8*>(task_id.data()));
                 size_t task_id_len = strnlen(task_id.c_str(), task_id_size);
                 task_id.resize(task_id_len < task_id_size ? task_id_len + 1 : task_id_size);
                 LOG_DEBUG(Service_BOSS, "task id in entry {} is {}", i,
                           std::string(task_id, 0, task_id.size() - 1));
-                std::string url(sizeof(cur_props.x7), 0);
-                const u64 url_offset = 0x21C;
-                boss_ss->Read(i * boss_s_entry_size + boss_save_header_size + url_offset,
-                              sizeof(cur_props.x7), (u8*)url.data());
+                std::string url(sizeof(cur_props.url), 0);
+                boss_ss->Read(entry_offset + boss_s_url_offset, sizeof(cur_props.url),
+                              reinterpret_cast<u8*>(url.data()));
                 size_t url_len = strnlen(url.c_str(), url.size());
                 url.resize(url_len < url.size() ? url_len + 1 : url.size());
                 LOG_DEBUG(Service_BOSS, "url for task {} is {}",
@@ -137,7 +141,7 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
                           std::string(url, 0, url.size() - 1));
                 if (prog_id == program_id) {
                     LOG_DEBUG(Service_BOSS, "storing for this session");
-                    std::memcpy(cur_props.x7, url.data(), sizeof(cur_props.x7));
+                    std::memcpy(cur_props.url, url.data(), sizeof(cur_props.url));
                     if (task_id_list.contains(task_id)) {
                         LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
                         task_id_list.erase(task_id);
@@ -397,7 +401,7 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
         }
         auto file = std::move(file_result).Unwrap();
         LOG_DEBUG(Service_BOSS, "Opening Spotpass file succeeded!");
-        file->Read(0, boss_header_length, (u8*)&entry.header);
+        file->Read(0, boss_header_length, reinterpret_cast<u8*>(&entry.header));
         // Extdata header should have size 0x18:
         // https://www.3dbrew.org/wiki/SpotPass#Payload_Content_Header
         if (entry.header.header_length != 0x18) {
@@ -407,34 +411,25 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
                 entry.header.header_length);
             continue;
         }
-#if COMMON_LITTLE_ENDIAN
-        entry.header.unknown = Common::swap32(entry.header.unknown);
-        entry.header.download_date = Common::swap32(entry.header.download_date);
-        entry.header.program_id = Common::swap64(entry.header.program_id);
-        entry.header.datatype = Common::swap32(entry.header.datatype);
-        entry.header.payload_size = Common::swap32(entry.header.payload_size);
-        entry.header.ns_data_id = Common::swap32(entry.header.ns_data_id);
-        entry.header.version = Common::swap32(entry.header.version);
-#endif
         u64 program_id = 0;
         Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
         if (entry.header.program_id != program_id) {
             LOG_WARNING(Service_BOSS,
                         "Mismatched program ID in spotpass data. Was expecting "
                         "{:#018X}, found {:#018X}",
-                        program_id, entry.header.program_id);
+                        program_id, u64(entry.header.program_id));
             continue;
         }
-        LOG_DEBUG(Service_BOSS, "Datatype is {:#010X}", entry.header.datatype);
+        LOG_DEBUG(Service_BOSS, "Datatype is {:#010X}", u32(entry.header.datatype));
         // Check the payload size is correct, excluding header
         if (entry.header.payload_size != cur_file.file_size - 0x34) {
             LOG_WARNING(Service_BOSS,
                         "Mismatched file size, was expecting {:#010X}, found {:#010X}",
-                        entry.header.payload_size, cur_file.file_size - 0x34);
+                        u32(entry.header.payload_size), cur_file.file_size - 0x34);
             continue;
         }
-        LOG_DEBUG(Service_BOSS, "Payload size is {:#010X}", entry.header.payload_size);
-        LOG_DEBUG(Service_BOSS, "NsDataID is {:#010X}", entry.header.ns_data_id);
+        LOG_DEBUG(Service_BOSS, "Payload size is {:#010X}", u32(entry.header.payload_size));
+        LOG_DEBUG(Service_BOSS, "NsDataID is {:#010X}", u32(entry.header.ns_data_id));
 
         ns_data.push_back(entry);
     }
@@ -484,7 +479,7 @@ u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
             LOG_DEBUG(
                 Service_BOSS,
                 "Filtered out NsDataID {:#010X}; failed filter {:#010X} with datatype {:#010X}",
-                cur_entry.header.ns_data_id, filter, cur_entry.header.datatype);
+                u32(cur_entry.header.ns_data_id), filter, u32(cur_entry.header.datatype));
             continue;
         }
         if (output_entries.size() >= max_entries) {
@@ -588,25 +583,26 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
 
 bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
 #ifdef ENABLE_WEB_SERVICE
-    size_t scheme_end = url.find("://") + 3;
-    std::string scheme = url.substr(0, scheme_end);
-    LOG_DEBUG(Service_BOSS, "Scheme is {}", scheme);
-    std::string host = url.substr(scheme_end, url.size());
-    std::string path = host.substr(host.find("/"), host.size());
-    host = host.substr(0, host.find("/"));
-    LOG_DEBUG(Service_BOSS, "host is {}", host);
-    LOG_DEBUG(Service_BOSS, "path is {}", path);
-    std::unique_ptr<httplib::Client> client = std::make_unique<httplib::Client>(scheme + host);
-    if (client == nullptr) {
-        LOG_ERROR(Service_BOSS, "Invalid URL {}{}", scheme, host);
+    auto url_parse_result = boost::urls::parse_uri(url);
+    if (url_parse_result.has_error()) {
+        LOG_ERROR(Service_BOSS, "Invalid URL {}", url);
         return false;
     }
-
+    auto url_parsed = url_parse_result.value();
+    std::string scheme = url_parsed.scheme();
+    std::string host = url_parsed.host();
+    std::string path = url_parsed.path();
+    LOG_DEBUG(Service_BOSS, "Scheme is {}", scheme);
+    LOG_DEBUG(Service_BOSS, "host is {}", host);
+    LOG_DEBUG(Service_BOSS, "path is {}", path);
+    std::unique_ptr<httplib::Client> client =
+        std::make_unique<httplib::Client>(scheme + "://" + host);
     httplib::Request request{
         .method = "GET",
         .path = path,
+        // Needed when httplib is included on android
+        .matches = httplib::Match(),
     };
-    LOG_DEBUG(Service_BOSS, "Got client");
     client->set_follow_location(true);
     client->enable_server_certificate_verification(false);
 
@@ -636,87 +632,27 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     }
     BossPayloadHeader payload_header;
     std::memcpy(&payload_header, response.body.data(), boss_payload_header_length);
-    u32 one = 1;
-#if COMMON_LITTLE_ENDIAN
-    payload_header.magic = Common::swap32(payload_header.magic);
-    payload_header.filesize = Common::swap32(payload_header.filesize);
-    payload_header.release_date = Common::swap64(payload_header.release_date);
-    payload_header.one = Common::swap16(payload_header.one);
-    payload_header.hash_type = Common::swap16(payload_header.hash_type);
-    payload_header.rsa_size = Common::swap16(payload_header.rsa_size);
-    one = Common::swap32(one);
-#endif
-    std::string boss_string = std::string((char*)payload_header.boss, sizeof(payload_header.boss));
-    if (boss_string.compare("boss") != 0) {
-        LOG_WARNING(Service_BOSS, "Start of file is not 'boss', it's '{}'", boss_string);
+
+    if (boss_magic != payload_header.boss) {
+        LOG_WARNING(Service_BOSS, "Start of file is not '{}', it's '{}'", boss_magic,
+                    u32(payload_header.boss));
         return false;
     }
-    LOG_DEBUG(Service_BOSS, "Magic boss number is {}", boss_string);
-    if (payload_header.magic != 0x10001) {
-        LOG_WARNING(Service_BOSS, "Magic number mismatch");
+    LOG_DEBUG(Service_BOSS, "Magic boss number is {}", u32(payload_header.boss));
+
+    if (payload_header.magic != boss_payload_magic) {
+        LOG_WARNING(Service_BOSS, "Magic number mismatch, expecting {}, found {}",
+                    boss_payload_magic, u32(payload_header.magic));
         return false;
     }
-    LOG_DEBUG(Service_BOSS, "Magic number is {:#010X}", payload_header.magic);
+    LOG_DEBUG(Service_BOSS, "Magic number is {:#010X}", u32(payload_header.magic));
+
     if (payload_header.filesize != response.body.size()) {
         LOG_WARNING(Service_BOSS, "Expecting response to be size {}, actual size is {}",
-                    payload_header.filesize, response.body.size());
+                    static_cast<u32>(payload_header.filesize), response.body.size());
         return false;
     }
-    LOG_DEBUG(Service_BOSS, "Filesize is {:#010X}", payload_header.filesize);
-    const u32 data_size = payload_header.filesize - boss_payload_header_length;
-    std::vector<u8> encrypted_data(data_size);
-    std::vector<u8> decrypted_data(data_size);
-    std::memcpy(encrypted_data.data(), response.body.data() + boss_payload_header_length,
-                data_size);
-    std::string encrypted_string((char*)encrypted_data.data(), data_size);
-    LOG_DEBUG(Service_BOSS, "encrypted data {}", encrypted_string);
-    // AES details here: https://www.3dbrew.org/wiki/SpotPass#Content_Container
-    CryptoPP::CTR_Mode<CryptoPP::AES>::Decryption aes;
-    HW::AES::AESKey key = HW::AES::GetNormalKey(0x38);
-    std::vector<u8> iv(sizeof(payload_header.iv_start) + sizeof(one));
-    std::memcpy(iv.data(), payload_header.iv_start, sizeof(payload_header.iv_start));
-    std::memcpy(iv.data() + sizeof(payload_header.iv_start), &one, sizeof(one));
-    u64 iv_high = 0;
-    u64 iv_low = 0;
-    std::memcpy(&iv_high, iv.data(), sizeof(iv_high));
-    std::memcpy(&iv_low, iv.data() + sizeof(iv_high), sizeof(iv_low));
-#if COMMON_LITTLE_ENDIAN
-    iv_high = Common::swap64(iv_high);
-    iv_low = Common::swap64(iv_low);
-#endif
-    LOG_DEBUG(Service_BOSS, "IV is {:#018X},{:#018X}", iv_high, iv_low);
-    aes.SetKeyWithIV(key.data(), CryptoPP::AES::BLOCKSIZE, iv.data());
-    aes.ProcessData(decrypted_data.data(), encrypted_data.data(), data_size);
-    std::string decrypted_string((char*)decrypted_data.data(), data_size);
-    LOG_DEBUG(Service_BOSS, "decrypted data {}", decrypted_string);
-
-    if (decrypted_data.size() < boss_content_header_length + boss_header_with_hash_length) {
-        LOG_WARNING(Service_BOSS, "Payload size to small to be boss data: {}",
-                    decrypted_data.size());
-        return false;
-    }
-
-    BossHeader header;
-    std::memcpy(&header.program_id, decrypted_data.data() + boss_content_header_length,
-                boss_header_length - boss_extdata_header_length);
-#if COMMON_LITTLE_ENDIAN
-    header.program_id = Common::swap64(header.program_id);
-    header.datatype = Common::swap32(header.datatype);
-    header.payload_size = Common::swap32(header.payload_size);
-    header.ns_data_id = Common::swap32(header.ns_data_id);
-    header.version = Common::swap32(header.version);
-#endif
-    u32 payload_size =
-        (u32)(decrypted_data.size() - (boss_content_header_length + boss_header_with_hash_length));
-    if (header.payload_size != payload_size) {
-        LOG_WARNING(Service_BOSS, "Payload has incorrect size, was expecting {}, found {}",
-                    header.payload_size, payload_size);
-        return false;
-    }
-    std::vector<u8> payload(payload_size);
-    std::memcpy(payload.data(),
-                decrypted_data.data() + boss_content_header_length + boss_header_with_hash_length,
-                payload_size);
+    LOG_DEBUG(Service_BOSS, "Filesize is {:#010X}", u32(payload_header.filesize));
 
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
@@ -729,17 +665,88 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     }
     LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
     auto boss_archive = std::move(archive_result).Unwrap().get();
+
+    // Temporarily also write payload (maybe for re-implementing spotpass when it goes down in the
+    // future?)
+    FileSys::Path payload_file_path = ("/" + file_name + "_payload").c_str();
+    auto payload_create_result = boss_archive->CreateFile(payload_file_path, response.body.size());
+    if (payload_create_result.is_error) {
+        LOG_WARNING(Service_BOSS, "Payload file could not be created, it may already exist");
+    }
+    FileSys::Mode payload_open_mode = {};
+    payload_open_mode.write_flag.Assign(1);
+    auto payload_file_result = boss_archive->OpenFile(payload_file_path, payload_open_mode);
+    if (!payload_file_result.Succeeded()) {
+        LOG_WARNING(Service_BOSS, "Could not open payload file for writing");
+        return false;
+    }
+    auto payload_file = std::move(payload_file_result).Unwrap();
+    payload_file->Write(0, response.body.size(), true,
+                        reinterpret_cast<u8*>(const_cast<char*>(response.body.data())));
+    payload_file->Close();
+    // end payload block
+
+    const u32 data_size = payload_header.filesize - boss_payload_header_length;
+    std::vector<u8> encrypted_data(data_size);
+    std::vector<u8> decrypted_data(data_size);
+    std::memcpy(encrypted_data.data(), response.body.data() + boss_payload_header_length,
+                data_size);
+    std::string encrypted_string(reinterpret_cast<char*>(encrypted_data.data()), data_size);
+    LOG_DEBUG(Service_BOSS, "encrypted data {}", encrypted_string);
+    // AES details here: https://www.3dbrew.org/wiki/SpotPass#Content_Container
+    CryptoPP::CTR_Mode<CryptoPP::AES>::Decryption aes;
+    HW::AES::AESKey key = HW::AES::GetNormalKey(0x38);
+    if (key == HW::AES::AESKey{}) {
+        LOG_WARNING(Service_BOSS, "AES Key 0x38 not found");
+        return false;
+    }
+    // IV is data in payload + 32 bit Big Endian 1
+    const u32_be one = 1;
+    std::vector<u8> iv(sizeof(payload_header.iv_start) + sizeof(one));
+    std::memcpy(iv.data(), payload_header.iv_start, sizeof(payload_header.iv_start));
+    std::memcpy(iv.data() + sizeof(payload_header.iv_start), &one, sizeof(one));
+    u64_be iv_high = 0;
+    u64_be iv_low = 0;
+    std::memcpy(&iv_high, iv.data(), sizeof(iv_high));
+    std::memcpy(&iv_low, iv.data() + sizeof(iv_high), sizeof(iv_low));
+    LOG_DEBUG(Service_BOSS, "IV is {:#018X},{:#018X}", u64(iv_high), u64(iv_low));
+    aes.SetKeyWithIV(key.data(), CryptoPP::AES::BLOCKSIZE, iv.data());
+    aes.ProcessData(decrypted_data.data(), encrypted_data.data(), data_size);
+    std::string decrypted_string(reinterpret_cast<char*>(decrypted_data.data()), data_size);
+    LOG_DEBUG(Service_BOSS, "decrypted data {}", decrypted_string);
+
+    if (decrypted_data.size() < boss_content_header_length + boss_header_with_hash_length) {
+        LOG_WARNING(Service_BOSS, "Payload size to small to be boss data: {}",
+                    decrypted_data.size());
+        return false;
+    }
+
+    BossHeader header;
+    std::memcpy(&header.program_id, decrypted_data.data() + boss_content_header_length,
+                boss_header_length - boss_extdata_header_length);
+    u32 payload_size = static_cast<u32>(
+        decrypted_data.size() - (boss_content_header_length + boss_header_with_hash_length));
+    if (header.payload_size != payload_size) {
+        LOG_WARNING(Service_BOSS, "Payload has incorrect size, was expecting {}, found {}",
+                    u32(header.payload_size), payload_size);
+        return false;
+    }
+    std::vector<u8> payload(payload_size);
+    std::memcpy(payload.data(),
+                decrypted_data.data() + boss_content_header_length + boss_header_with_hash_length,
+                payload_size);
+
     // Temporarily also write raw data
     FileSys::Path raw_file_path = ("/" + file_name + "_raw_data").c_str();
     auto raw_create_result = boss_archive->CreateFile(raw_file_path, decrypted_data.size());
     if (raw_create_result.is_error) {
-        LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
+        LOG_WARNING(Service_BOSS, "Raw data file could not be created, it may already exist");
     }
     FileSys::Mode raw_open_mode = {};
     raw_open_mode.write_flag.Assign(1);
     auto raw_file_result = boss_archive->OpenFile(raw_file_path, raw_open_mode);
     if (!raw_file_result.Succeeded()) {
-        LOG_WARNING(Service_BOSS, "Could not open spotpass file for writing");
+        LOG_WARNING(Service_BOSS, "Could not open raw data file for writing");
         return false;
     }
     auto raw_file = std::move(raw_file_result).Unwrap();
@@ -750,10 +757,10 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     Core::System::GetInstance().GetAppLoader().ReadProgramId(program_id);
     if (program_id != header.program_id) {
         LOG_WARNING(Service_BOSS, "Mismatched program id, was expecting {:#018X}, found {:#018X}",
-                    program_id, header.program_id);
+                    program_id, u64(header.program_id));
         if (header.program_id == 0x0004013000003502) {
             LOG_DEBUG(Service_BOSS, "Looks like this is a news message");
-            std::string news_string((char*)payload.data(), payload_size);
+            std::string news_string(reinterpret_cast<char*>(payload.data()), payload_size);
             news_string.erase(std::remove(news_string.begin(), news_string.end(), '\0'),
                               news_string.end());
             LOG_DEBUG(Service_BOSS, "News string might be {}", news_string);
@@ -774,14 +781,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     }
     auto file = std::move(file_result).Unwrap();
     header.header_length = 0x18;
-#if COMMON_LITTLE_ENDIAN
-    header.program_id = Common::swap64(header.program_id);
-    header.datatype = Common::swap32(header.datatype);
-    header.payload_size = Common::swap32(header.payload_size);
-    header.ns_data_id = Common::swap32(header.ns_data_id);
-    header.version = Common::swap32(header.version);
-#endif
-    file->Write(0, boss_header_length, true, (u8*)&header);
+    file->Write(0, boss_header_length, true, reinterpret_cast<u8*>(&header));
     file->Write(boss_header_length, payload_size, true, payload.data());
     file->Close();
     return true;
@@ -841,10 +841,10 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         cur_prop = &cur_props.x9;
         break;
     case 0x10:
-        cur_prop = &cur_props.x10;
+        cur_prop = &cur_props.loadcert;
         break;
     case 0x11:
-        cur_prop = &cur_props.x11;
+        cur_prop = &cur_props.loadrootcert;
         break;
     case 0x12:
         cur_prop = &cur_props.x12;
@@ -868,7 +868,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         } else {
             buffer.Read(cur_prop, 0, size);
             LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#06X}", property_id,
-                      *(u8*)cur_prop);
+                      *static_cast<u8*>(cur_prop));
         }
     }
     cur_prop = NULLPTR;
@@ -878,10 +878,10 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         cur_prop = &cur_props.x2;
         break;
     case 0x3:
-        cur_prop = &cur_props.x3;
+        cur_prop = &cur_props.interval;
         break;
     case 0x4:
-        cur_prop = &cur_props.x4;
+        cur_prop = &cur_props.duration;
         break;
     case 0x8:
         cur_prop = &cur_props.x8;
@@ -890,7 +890,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         cur_prop = &cur_props.xC;
         break;
     case 0xE:
-        cur_prop = &cur_props.xE;
+        cur_prop = &cur_props.certid;
         break;
     case 0x13:
         cur_prop = &cur_props.x13;
@@ -918,7 +918,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         } else {
             buffer.Read(cur_prop, 0, size);
             LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#010X}", property_id,
-                      *(u32*)cur_prop);
+                      *static_cast<u32*>(cur_prop));
         }
     }
     cur_prop = NULLPTR;
@@ -926,7 +926,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     switch (property_id) {
         // string properties
     case 0x7:
-        cur_prop = &cur_props.x7;
+        cur_prop = &cur_props.url;
         expected_size = 0x200;
         break;
     case 0xA:
@@ -938,7 +938,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         expected_size = 0x200;
         break;
     case 0xD:
-        cur_prop = &cur_props.xD;
+        cur_prop = &cur_props.headers;
         expected_size = 0x360;
         break;
     case 0x15:
@@ -946,7 +946,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         expected_size = 0x40;
         break;
     case 0x3E:
-        cur_prop = &cur_props.x3E;
+        cur_prop = &cur_props.uploadstring;
         expected_size = 0x200;
         break;
     }
@@ -958,7 +958,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         } else {
             buffer.Read(cur_prop, 0, size);
             LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {}", property_id,
-                      std::string((char*)cur_prop, size));
+                      std::string(static_cast<char*>(cur_prop), size));
         }
     }
 
@@ -1153,9 +1153,9 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Task Id {} not found", task_id);
         } else {
             task_id_list[task_id].times_checked = 0;
-            std::string url(
-                (char*)task_id_list[task_id].x7,
-                strnlen((char*)task_id_list[task_id].x7, sizeof(task_id_list[task_id].x7)));
+            std::string url(reinterpret_cast<char*>(task_id_list[task_id].url),
+                            strnlen(reinterpret_cast<char*>(task_id_list[task_id].url),
+                                    sizeof(task_id_list[task_id].url)));
             std::string file_name(task_id, 0, strnlen(task_id.c_str(), task_id.size()));
             if (DownloadBossDataFromURL(url, file_name)) {
                 LOG_DEBUG(Service_BOSS, "Downloaded from {} successfully", url);
@@ -1247,7 +1247,7 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
             // Get the duration from the task if available
-            duration = task_id_list[task_id].x4;
+            duration = task_id_list[task_id].duration;
             if (task_id_list[task_id].times_checked == 0) {
                 LOG_DEBUG(Service_BOSS, "Emulating task not started");
                 task_status = 5;
@@ -1295,7 +1295,7 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
             // Get the duration from the task if available
-            duration = task_id_list[task_id].x4;
+            duration = task_id_list[task_id].duration;
             if (task_id_list[task_id].success) {
                 LOG_DEBUG(Service_BOSS, "Task ran successfully");
             } else {
@@ -1451,6 +1451,10 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     NsDataEntry entry;
     bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
     if (entry_success) {
+        u64 program_id = entry.header.program_id;
+        u32 datatype = entry.header.datatype;
+        u32 payload_size = entry.header.payload_size;
+        u32 version = entry.header.version;
 
         switch (type) {
         case 0x00:
@@ -1458,9 +1462,9 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&entry.header.program_id, 0, size);
+            buffer.Write(&program_id, 0, size);
             result = 0;
-            LOG_DEBUG(Service_BOSS, "Wrote out program id {}", entry.header.program_id);
+            LOG_DEBUG(Service_BOSS, "Wrote out program id {}", program_id);
             break;
         case 0x01:
             if (size != 4) {
@@ -1476,56 +1480,55 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&entry.header.datatype, 0, size);
+            buffer.Write(&datatype, 0, size);
             result = 0;
-            LOG_DEBUG(Service_BOSS, "Wrote out content datatype {}", entry.header.datatype);
+            LOG_DEBUG(Service_BOSS, "Wrote out content datatype {}", datatype);
             break;
         case 0x03:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&entry.header.payload_size, 0, size);
+            buffer.Write(&payload_size, 0, size);
             result = 0;
-            LOG_DEBUG(Service_BOSS, "Wrote out payload size {}", entry.header.payload_size);
+            LOG_DEBUG(Service_BOSS, "Wrote out payload size {}", payload_size);
             break;
         case 0x04:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&entry.header.ns_data_id, 0, size);
+            buffer.Write(&ns_data_id, 0, size);
             result = 0;
-            LOG_DEBUG(Service_BOSS, "Wrote out NsDataID {}", entry.header.ns_data_id);
+            LOG_DEBUG(Service_BOSS, "Wrote out NsDataID {}", ns_data_id);
             break;
         case 0x05:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&entry.header.version, 0, size);
+            buffer.Write(&version, 0, size);
             result = 0;
-            LOG_DEBUG(Service_BOSS, "Wrote out version {}", entry.header.version);
+            LOG_DEBUG(Service_BOSS, "Wrote out version {}", version);
             break;
         case 0x06:
             if (size != 0x20) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
             }
-            buffer.Write(&entry.header.program_id, 0x0, 8);
+            buffer.Write(&program_id, 0x0, 8);
             buffer.Write(&zero, 0x8, 4);
-            buffer.Write(&entry.header.datatype, 0xC, 4);
-            buffer.Write(&entry.header.payload_size, 0x10, 4);
-            buffer.Write(&entry.header.ns_data_id, 0x14, 4);
-            buffer.Write(&entry.header.version, 0x18, 4);
+            buffer.Write(&datatype, 0xC, 4);
+            buffer.Write(&payload_size, 0x10, 4);
+            buffer.Write(&ns_data_id, 0x14, 4);
+            buffer.Write(&version, 0x18, 4);
             buffer.Write(&zero, 0x1C, 4);
             result = 0;
             LOG_DEBUG(
                 Service_BOSS,
                 "Wrote out unknown with program id {:#018X}, unknown zero, datatype {:#010X}, "
                 "payload size {:#010X}, NsDataID {:#010X}, version {:#010X} and unknown zero",
-                entry.header.program_id, entry.header.datatype, entry.header.payload_size,
-                entry.header.ns_data_id, entry.header.version);
+                program_id, datatype, payload_size, ns_data_id, version);
             break;
         default:
             LOG_WARNING(Service_BOSS, "Unknown header info type {}", type);
@@ -1576,7 +1579,7 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
                 LOG_WARNING(Service_BOSS,
                             "Request to read {:#010X} bytes at offset {:#010X}, payload "
                             "length is {:#010X}",
-                            size, offset, entry.header.payload_size);
+                            size, offset, u32(entry.header.payload_size));
             } else {
                 std::vector<u8> ns_data_array(size);
                 file->Read(boss_header_length + offset, size, ns_data_array.data());
