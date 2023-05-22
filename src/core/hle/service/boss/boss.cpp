@@ -470,8 +470,8 @@ u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
     std::vector<NsDataEntry> ns_data = GetNsDataEntries();
     std::vector<u32> output_entries;
     for (auto const& cur_entry : ns_data) {
-        const u16 datatype_high = static_cast<u16>(cur_entry.header.datatype >> 16);
-        const u16 datatype_low = static_cast<u16>(cur_entry.header.datatype & 0xFFFF);
+        const u16 datatype_high = static_cast<u16>(u32(cur_entry.header.datatype) >> 16);
+        const u16 datatype_low = static_cast<u16>(u32(cur_entry.header.datatype) & 0xFFFF);
         const u16 filter_high = static_cast<u16>(filter >> 16);
         const u16 filter_low = static_cast<u16>(filter & 0xFFFF);
         if (filter != 0xFFFFFFFF &&
