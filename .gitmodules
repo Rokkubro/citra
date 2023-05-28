@@ -1,7 +1,6 @@
 [submodule "boost"]
     path = externals/boost
-	url = https://github.com/Rokkubro/ext-boost.git
-	branch = feature/url
+	url = https://github.com/citra-emu/ext-boost.git
 [submodule "nihstro"]
     path = externals/nihstro
     url = https://github.com/neobrain/nihstro.git

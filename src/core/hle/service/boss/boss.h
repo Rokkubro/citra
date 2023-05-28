@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <any>
 #include <memory>
 #include <boost/serialization/shared_ptr.hpp>
 #include <core/loader/loader.h>
@@ -47,6 +48,7 @@ static_assert(sizeof(BossHeader) == 0x34, "BossHeader struct isn't exactly 0x34 
 constexpr u32 boss_payload_header_length = 0x28;
 constexpr u32 boss_magic = Loader::MakeMagic('b', 'o', 's', 's');
 constexpr u32 boss_payload_magic = 0x10001;
+constexpr u64 news_prog_id = 0x0004013000003502;
 // 40 bytes doesn't align nicely into 8-byte words either
 #pragma pack(push, 4)
 struct BossPayloadHeader {
@@ -81,45 +83,70 @@ struct NsDataEntry {
 };
 
 constexpr u8 task_id_size = 8;
-#pragma pack(push, 1)
+constexpr u16 interval_id = 0x03;
+constexpr u16 duration_id = 0x04;
+constexpr u16 url_id = 0x07;
+constexpr size_t url_size = 0x200;
+constexpr u16 headers_id = 0x0D;
+constexpr size_t headers_size = 0x360;
+constexpr u16 certid_id = 0x0E;
+constexpr u16 certidlist_id = 0x0F;
+constexpr size_t certidlist_size = 3;
+constexpr u16 loadcert_id = 0x10;
+constexpr u16 loadrootcert_id = 0x11;
+constexpr u16 totaltasks_id = 0x35;
+constexpr u16 taskidlist_id = 0x36;
+constexpr size_t taskidlist_size = 0x400;
+
 struct BossTaskProperties {
     bool success;
     u32 times_checked;
-    u8 x0;
-    u8 x1;
-    u32 x2;
-    u32 interval;
-    u32 duration;
-    u8 x5;
-    u8 x6;
-    u8 url[0x200];
-    u32 x8;
-    u8 x9;
-    u8 xA[0x100];
-    u8 xB[0x200];
-    u32 xC;
-    u8 headers[0x360];
-    u32 certid;
-    u32 certidlist[3];
-    u8 loadcert;
-    u8 loadrootcert;
-    u8 x12;
-    u32 x13;
-    u32 x14;
-    u8 x15[0x40];
-    u32 x16;
-    u8 x18;
-    u8 x19;
-    u8 x1A;
-    u32 x1B;
-    u32 x1C;
-    u32 x3B;
-    u8 uploadstring[0x200];
-    u8 x3F;
+    std::map<u16, std::any> props{
+        {0x00, u8()},
+        {0x01, u8()},
+        {0x02, u32()},
+        // interval
+        {interval_id, u32()},
+        // duration
+        {duration_id, u32()},
+        {0x05, u8()},
+        {0x06, u8()},
+        // url
+        {url_id, std::vector<u8>(url_size)},
+        {0x08, u32()},
+        {0x09, u8()},
+        {0x0A, std::vector<u8>(0x100)},
+        {0x0B, std::vector<u8>(0x200)},
+        {0x0C, u32()},
+        // headers
+        {headers_id, std::vector<u8>(headers_size)},
+        // certid
+        {certid_id, u32()},
+        // certidlist
+        {certidlist_id, std::vector<u32>(certidlist_size)},
+        // loadcert (bool)
+        {loadcert_id, u8()},
+        // loadrootcert (bool)
+        {loadrootcert_id, u8()},
+        {0x12, u8()},
+        {0x13, u32()},
+        {0x14, u32()},
+        {0x15, std::vector<u8>(0x40)},
+        {0x16, u32()},
+        {0x18, u8()},
+        {0x19, u8()},
+        {0x1A, u8()},
+        {0x1B, u32()},
+        {0x1C, u32()},
+        // totaltasks
+        {totaltasks_id, u16()},
+        // taskidlist
+        {taskidlist_id, std::vector<u8>(taskidlist_size)},
+        {0x3B, u32()},
+        {0x3E, std::vector<u8>(0x200)},
+        {0x3F, u8()},
+    };
 };
-#pragma pack(pop)
-static_assert(sizeof(BossTaskProperties) == 0xAED,
-              "BossTaskProperties struct isn't exactly 0xAED bytes long!");
 
 constexpr std::array<u8, 8> boss_system_savedata_id{
     0x00, 0x00, 0x00, 0x00, 0x34, 0x00, 0x01, 0x00,
@@ -1077,7 +1104,7 @@ public:
         BossTaskProperties cur_props;
 
         auto GetBossDataDir();
-        bool DownloadBossDataFromURL(std::string url, std::string file_name);
+        bool DownloadBossDataFromURL(std::string_view url, std::string_view file_name);
         std::vector<NsDataEntry> GetNsDataEntries();
         u32 GetBossExtDataFiles(u32 files_to_read, auto* boss_files);
         u16 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
