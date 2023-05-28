@@ -20,7 +20,6 @@
 #undef ERROR_ALREADY_EXISTS
 #endif
 #endif
-#include <codecvt>
 #include <boost/url/src.hpp>
 #include <core/file_sys/archive_systemsavedata.h>
 #include <cryptopp/aes.h>
@@ -413,7 +412,7 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
 
         NsDataEntry entry;
         std::string filename{Common::UTF16ToUTF8(cur_file.filename)};
-        FileSys::Path file_path = ("/" + filename).c_str();
+        FileSys::Path file_path = "/" + filename;
         LOG_DEBUG(Service_BOSS, "Spotpass filename={}", filename);
         entry.filename = filename;
 
@@ -695,7 +694,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
 
     // Temporarily also write payload (maybe for re-implementing spotpass when it goes down in the
     // future?)
-    FileSys::Path payload_file_path = ("/" + std::string(file_name) + "_payload").c_str();
+    FileSys::Path payload_file_path = "/" + std::string(file_name) + "_payload";
     auto payload_create_result = boss_archive->CreateFile(payload_file_path, response.body.size());
     if (payload_create_result.is_error) {
         LOG_WARNING(Service_BOSS, "Payload file could not be created, it may already exist");
@@ -761,7 +760,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
     std::memcpy(payload.data(), decrypted_data.data() + boss_entire_header_length, payload_size);
 
     // Temporarily also write raw data
-    FileSys::Path raw_file_path = ("/" + std::string(file_name) + "_raw_data").c_str();
+    FileSys::Path raw_file_path = "/" + std::string(file_name) + "_raw_data";
     auto raw_create_result = boss_archive->CreateFile(raw_file_path, decrypted_data.size());
     if (raw_create_result.is_error) {
         LOG_WARNING(Service_BOSS, "Raw data file could not be created, it may already exist");
@@ -796,20 +795,19 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
             // news service though
             std::array<u8, news_header_size> news_header;
             std::memcpy(news_header.data(), payload.data(), news_header_size);
-            std::u16string news_title_string(
+            std::u16string_view news_title_string(
                 reinterpret_cast<char16_t*>(news_header.data() + news_title_offset),
                 news_title_size / 2);
-            std::u16string news_message_string(
+            std::u16string_view news_message_string(
                 reinterpret_cast<char16_t*>(payload.data() + news_header_size),
                 news_message_size / 2);
-            std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-            LOG_DEBUG(Service_BOSS, "News title is: {}", convert.to_bytes(news_title_string));
-            LOG_DEBUG(Service_BOSS, "News message is:\n{}", convert.to_bytes(news_message_string));
+            LOG_DEBUG(Service_BOSS, "News title is: {}", Common::UTF16ToUTF8(news_title_string));
+            LOG_DEBUG(Service_BOSS, "News message is:\n{}",
+                      Common::UTF16ToUTF8(news_message_string));
             if (payload.size() != news_header_size + news_message_size) {
                 LOG_DEBUG(Service_BOSS, "Image is present in news, dumping...");
                 const size_t image_size = payload.size() - (news_header_size + news_message_size);
-                FileSys::Path image_file_path =
-                    ("/" + std::string(file_name) + "_news_image.jpg").c_str();
+                FileSys::Path image_file_path = "/" + std::string(file_name) + "_news_image.jpg";
                 auto image_create_result = boss_archive->CreateFile(image_file_path, image_size);
                 if (image_create_result.is_error) {
                     LOG_WARNING(Service_BOSS,
@@ -831,7 +829,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
         }
         return false;
     }
-    FileSys::Path file_path = ("/" + std::string(file_name)).c_str();
+    FileSys::Path file_path = "/" + std::string(file_name);
     auto create_result = boss_archive->CreateFile(file_path, boss_header_length + payload_size);
     if (create_result.is_error) {
         LOG_WARNING(Service_BOSS, "Spotpass file could not be created, it may already exist");
@@ -1554,7 +1552,7 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     } else {
         LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
         auto boss_archive = std::move(archive_result).Unwrap().get();
-        FileSys::Path file_path = ("/" + entry.filename).c_str();
+        FileSys::Path file_path = "/" + entry.filename;
         FileSys::Mode mode{};
         mode.read_flag.Assign(1);
         auto file_result = boss_archive->OpenFile(file_path, mode);
