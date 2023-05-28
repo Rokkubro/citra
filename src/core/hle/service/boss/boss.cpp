@@ -20,6 +20,7 @@
 #undef ERROR_ALREADY_EXISTS
 #endif
 #endif
+#include <codecvt>
 #include <boost/url/src.hpp>
 #include <core/file_sys/archive_systemsavedata.h>
 #include <cryptopp/aes.h>
@@ -27,7 +28,6 @@
 #include "common/string_util.h"
 #include "core/core.h"
 #include "core/file_sys/archive_extsavedata.h"
-#include "core/file_sys/directory_backend.h"
 #include "core/file_sys/errors.h"
 #include "core/file_sys/file_backend.h"
 #include "core/hle/ipc_helpers.h"
@@ -35,7 +35,6 @@
 #include "core/hle/service/boss/boss_p.h"
 #include "core/hle/service/boss/boss_u.h"
 #include "core/hw/aes/key.h"
-#include <codecvt>
 
 namespace Service::BOSS {
 
@@ -74,76 +73,85 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
         systemsavedata_factory.Format(archive_path, FileSys::ArchiveFormatInfo(), 0);
 
         // Open it again to get a valid archive now that the folder exists
-        boss_system_save_data_archive = systemsavedata_factory.Open(archive_path, 0).Unwrap();
-    } else if (!archive_result.Succeeded()) {
-        LOG_ERROR(Service_BOSS, "could not open boss savedata");
-    } else {
-        ASSERT_MSG(archive_result.Succeeded(), "Could not open the BOSS SystemSaveData archive!");
-
+        auto create_archive_result = systemsavedata_factory.Open(archive_path, 0);
+        if (create_archive_result.Succeeded()) {
+            boss_system_save_data_archive = std::move(create_archive_result).Unwrap();
+        } else {
+            boss_system_save_data_archive = NULLPTR;
+        }
+    } else if (archive_result.Succeeded()) {
         boss_system_save_data_archive = std::move(archive_result).Unwrap();
+    } else {
+        boss_system_save_data_archive = NULLPTR;
     }
+    if (boss_system_save_data_archive == NULLPTR) {
+        LOG_ERROR(Service_BOSS, "could not open boss savedata");
 
-    FileSys::Path boss_a_path("/BOSS_A.db");
-    FileSys::Mode open_mode = {};
-    open_mode.read_flag.Assign(1);
+    } else {
+        FileSys::Path boss_a_path("/BOSS_A.db");
+        FileSys::Mode open_mode = {};
+        open_mode.read_flag.Assign(1);
+        auto boss_a_result = boss_system_save_data_archive->OpenFile(boss_a_path, open_mode);
 
-    auto boss_a_result = boss_system_save_data_archive->OpenFile(boss_a_path, open_mode);
-
-    // Read the file if it already exists
-    if (boss_a_result.Succeeded()) {
-        auto boss_a = std::move(boss_a_result).Unwrap();
-        if (boss_a->GetSize() > boss_save_header_size &&
-            ((boss_a->GetSize() - boss_save_header_size) % boss_a_entry_size) == 0) {
-            u64 num_entries = (boss_a->GetSize() - boss_save_header_size) / boss_a_entry_size;
-            for (u64 i = 0; i < num_entries; i++) {
-                u64 entry_offset = i * boss_a_entry_size + boss_save_header_size;
-                u64 prog_id;
-                boss_a->Read(entry_offset, sizeof(prog_id), reinterpret_cast<u8*>(&prog_id));
-                LOG_DEBUG(Service_BOSS, "id in entry {} is {:#018X}", i, prog_id);
+        // Read the file if it already exists
+        if (boss_a_result.Succeeded()) {
+            auto boss_a = std::move(boss_a_result).Unwrap();
+            const u64 boss_a_size = boss_a->GetSize();
+            if (boss_a_size > boss_save_header_size &&
+                ((boss_a_size - boss_save_header_size) % boss_a_entry_size) == 0) {
+                u64 num_entries = (boss_a_size - boss_save_header_size) / boss_a_entry_size;
+                for (u64 i = 0; i < num_entries; i++) {
+                    u64 entry_offset = i * boss_a_entry_size + boss_save_header_size;
+                    u64 prog_id;
+                    boss_a->Read(entry_offset, sizeof(prog_id), reinterpret_cast<u8*>(&prog_id));
+                    LOG_DEBUG(Service_BOSS, "id in entry {} is {:#018X}", i, prog_id);
+                }
             }
         }
-    }
-    FileSys::Path boss_sv_path("/BOSS_SV.db");
+        FileSys::Path boss_sv_path("/BOSS_SV.db");
 
-    auto boss_sv_result = boss_system_save_data_archive->OpenFile(boss_sv_path, open_mode);
+        auto boss_sv_result = boss_system_save_data_archive->OpenFile(boss_sv_path, open_mode);
 
-    FileSys::Path boss_ss_path("/BOSS_SS.db");
+        FileSys::Path boss_ss_path("/BOSS_SS.db");
 
-    auto boss_ss_result = boss_system_save_data_archive->OpenFile(boss_ss_path, open_mode);
+        auto boss_ss_result = boss_system_save_data_archive->OpenFile(boss_ss_path, open_mode);
 
-    // Read the files if they already exists
-    if (boss_sv_result.Succeeded() && boss_ss_result.Succeeded()) {
-        auto boss_sv = std::move(boss_sv_result).Unwrap();
-        auto boss_ss = std::move(boss_ss_result).Unwrap();
-        if (boss_sv->GetSize() > boss_save_header_size &&
-            ((boss_sv->GetSize() - boss_save_header_size) % boss_s_entry_size) == 0 &&
-            boss_sv->GetSize() == boss_ss->GetSize()) {
-            u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
-            for (u64 i = 0; i < num_entries; i++) {
-                u64 entry_offset = i * boss_s_entry_size + boss_save_header_size;
-                u64 prog_id;
-                boss_sv->Read(entry_offset + boss_s_prog_id_offset, sizeof(prog_id),
-                              reinterpret_cast<u8*>(&prog_id));
-                LOG_DEBUG(Service_BOSS, "id sv in entry {} is {:#018X}", i, prog_id);
-                std::string task_id(task_id_size, 0);
-                boss_sv->Read(entry_offset + boss_s_task_id_offset, task_id_size,
-                              reinterpret_cast<u8*>(task_id.data()));
-                size_t task_id_len = strnlen(task_id.c_str(), task_id_size);
-                task_id.resize(task_id_len < task_id_size ? task_id_len + 1 : task_id_size);
-                LOG_DEBUG(Service_BOSS, "task id in entry {} is {}", i, task_id);
-                std::vector<u8> url(url_size);
-                boss_ss->Read(entry_offset + boss_s_url_offset, url_size, url.data());
-                LOG_DEBUG(Service_BOSS, "url for task {} is {}", task_id,
-                          std::string_view(reinterpret_cast<char*>(url.data()), url.size()));
-                if (prog_id == program_id) {
-                    LOG_DEBUG(Service_BOSS, "storing for this session");
-                    cur_props.props[0x07] = url;
-                    if (task_id_list.contains(task_id)) {
-                        LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
-                        task_id_list.erase(task_id);
+        // Read the files if they already exists
+        if (boss_sv_result.Succeeded() && boss_ss_result.Succeeded()) {
+            auto boss_sv = std::move(boss_sv_result).Unwrap();
+            auto boss_ss = std::move(boss_ss_result).Unwrap();
+            if (boss_sv->GetSize() > boss_save_header_size &&
+                ((boss_sv->GetSize() - boss_save_header_size) % boss_s_entry_size) == 0 &&
+                boss_sv->GetSize() == boss_ss->GetSize()) {
+                u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
+                for (u64 i = 0; i < num_entries; i++) {
+                    u64 entry_offset = i * boss_s_entry_size + boss_save_header_size;
+
+                    u64 prog_id;
+                    boss_sv->Read(entry_offset + boss_s_prog_id_offset, sizeof(prog_id),
+                                  reinterpret_cast<u8*>(&prog_id));
+                    LOG_DEBUG(Service_BOSS, "id sv in entry {} is {:#018X}", i, prog_id);
+
+                    std::string task_id(task_id_size, 0);
+                    boss_sv->Read(entry_offset + boss_s_task_id_offset, task_id_size,
+                                  reinterpret_cast<u8*>(task_id.data()));
+                    LOG_DEBUG(Service_BOSS, "task id in entry {} is {}", i, task_id);
+
+                    std::vector<u8> url(url_size);
+                    boss_ss->Read(entry_offset + boss_s_url_offset, url_size, url.data());
+                    LOG_DEBUG(Service_BOSS, "url for task {} is {}", task_id,
+                              std::string_view(reinterpret_cast<char*>(url.data()), url.size()));
+
+                    if (prog_id == program_id) {
+                        LOG_DEBUG(Service_BOSS, "storing for this session");
+                        cur_props.props[0x07] = url;
+                        if (task_id_list.contains(task_id)) {
+                            LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
+                            task_id_list.erase(task_id);
+                        }
+                        task_id_list.emplace(task_id, cur_props);
+                        cur_props = BossTaskProperties();
                     }
-                    task_id_list.emplace(task_id, cur_props);
-                    cur_props = BossTaskProperties();
                 }
             }
         }
@@ -333,7 +341,7 @@ void Module::Interface::GetTaskIdList(Kernel::HLERequestContext& ctx) {
     u16 num_returned_task_ids = 0;
     std::vector<u8> task_ids(taskidlist_size);
 
-    for (auto const& iter : task_id_list) {
+    for (const auto& iter : task_id_list) {
         std::string cur_task_id = iter.first;
         if (cur_task_id.size() > task_id_size ||
             num_returned_task_ids * task_id_size + task_id_size > taskidlist_size) {
@@ -367,7 +375,7 @@ void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
 }
 
-auto Module::Interface::GetBossDataDir() {
+FileSys::Path Module::Interface::GetBossDataDir() {
     u64 extdata_id = 0;
     Core::System::GetInstance().GetAppLoader().ReadExtdataId(extdata_id);
 
@@ -379,15 +387,15 @@ auto Module::Interface::GetBossDataDir() {
 
 std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
     std::vector<NsDataEntry> ns_data;
-    const u32 files_to_read = 100;
+
     std::vector<FileSys::Entry> boss_files(files_to_read);
 
-    u32 entry_count = GetBossExtDataFiles(files_to_read, boss_files.data());
+    u32 entry_count = GetBossExtDataFiles(boss_files);
 
     boss_files.resize(entry_count);
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
-    FileSys::Path boss_path{GetBossDataDir()};
+    const FileSys::Path boss_path{GetBossDataDir()};
     auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
 
     if (!archive_result.Succeeded()) {
@@ -397,7 +405,7 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
     LOG_DEBUG(Service_BOSS, "Spotpass Extdata opened successfully!");
     auto boss_archive = std::move(archive_result).Unwrap().get();
 
-    for (auto const& cur_file : boss_files) {
+    for (const auto& cur_file : boss_files) {
         if (cur_file.is_directory || cur_file.file_size < boss_header_length) {
             LOG_WARNING(Service_BOSS, "Directory or too-short file in spotpass extdata");
             continue;
@@ -423,11 +431,11 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
         file->Read(0, boss_header_length, reinterpret_cast<u8*>(&entry.header));
         // Extdata header should have size 0x18:
         // https://www.3dbrew.org/wiki/SpotPass#Payload_Content_Header
-        if (entry.header.header_length != 0x18) {
+        if (entry.header.header_length != boss_extdata_header_length) {
             LOG_WARNING(
                 Service_BOSS,
-                "Incorrect header length or non-spotpass file; expected 0x18, found {:#010X}",
-                entry.header.header_length);
+                "Incorrect header length or non-spotpass file; expected {:#010X}, found {:#010X}",
+                boss_extdata_header_length, entry.header.header_length);
             continue;
         }
         u64 program_id = 0;
@@ -455,13 +463,13 @@ std::vector<NsDataEntry> Module::Interface::GetNsDataEntries() {
     return ns_data;
 }
 
-u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
+u32 Module::Interface::GetBossExtDataFiles(std::vector<FileSys::Entry>& files) {
     u32 entry_count = 0;
 
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
 
-    FileSys::Path boss_path{GetBossDataDir()};
+    const FileSys::Path boss_path{GetBossDataDir()};
 
     auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
     if (!archive_result.Succeeded()) {
@@ -480,15 +488,15 @@ u32 Module::Interface::GetBossExtDataFiles(u32 files_to_read, auto* files) {
     }
     LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory opened successfully!");
     auto dir = std::move(dir_result).Unwrap();
-    entry_count = dir->Read(files_to_read, files);
+    entry_count = dir->Read(static_cast<u32>(files.size()), files.data());
     LOG_DEBUG(Service_BOSS, "Spotpass Extdata directory contains {} files", entry_count);
     return entry_count;
 }
 
-u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffer) {
+u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, Kernel::MappedBuffer& buffer) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries();
     std::vector<u32> output_entries;
-    for (auto const& cur_entry : ns_data) {
+    for (const auto& cur_entry : ns_data) {
         const u16 datatype_high = static_cast<u16>(u32(cur_entry.header.datatype) >> 16);
         const u16 datatype_low = static_cast<u16>(u32(cur_entry.header.datatype) & 0xFFFF);
         const u16 filter_high = static_cast<u16>(filter >> 16);
@@ -507,7 +515,7 @@ u16 Module::Interface::GetOutputEntries(u32 filter, u32 max_entries, auto* buffe
         }
         output_entries.push_back(cur_entry.header.ns_data_id);
     }
-    buffer->Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
+    buffer.Write(output_entries.data(), 0, sizeof(u32) * output_entries.size());
     LOG_DEBUG(Service_BOSS, "{} usable entries returned", output_entries.size());
     return static_cast<u16>(output_entries.size());
 }
@@ -520,7 +528,7 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -542,7 +550,7 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -564,7 +572,7 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -586,7 +594,7 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     const u32 start_ns_data_id = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    const u16 entries_count = GetOutputEntries(filter, max_entries, &buffer);
+    const u16 entries_count = GetOutputEntries(filter, max_entries, buffer);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(3, 2);
     rb.Push(RESULT_SUCCESS);
@@ -676,7 +684,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
 
-    FileSys::Path boss_path{GetBossDataDir()};
+    const FileSys::Path boss_path{GetBossDataDir()};
 
     auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
     if (!archive_result.Succeeded()) {
@@ -722,7 +730,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
     // IV is data in payload + 32 bit Big Endian 1
     const u32_be one = 1;
     std::vector<u8> iv(sizeof(payload_header.iv_start) + sizeof(one));
-    std::memcpy(iv.data(), payload_header.iv_start, sizeof(payload_header.iv_start));
+    std::memcpy(iv.data(), payload_header.iv_start.data(), sizeof(payload_header.iv_start));
     std::memcpy(iv.data() + sizeof(payload_header.iv_start), &one, sizeof(one));
     u64_be iv_high = 0;
     u64_be iv_low = 0;
@@ -734,7 +742,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
     std::string decrypted_string(reinterpret_cast<char*>(decrypted_data.data()), data_size);
     LOG_DEBUG(Service_BOSS, "decrypted data {}", decrypted_string);
 
-    if (decrypted_data.size() < boss_content_header_length + boss_header_with_hash_length) {
+    if (decrypted_data.size() < boss_entire_header_length) {
         LOG_WARNING(Service_BOSS, "Payload size to small to be boss data: {}",
                     decrypted_data.size());
         return false;
@@ -743,17 +751,14 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
     BossHeader header;
     std::memcpy(&header.program_id, decrypted_data.data() + boss_content_header_length,
                 boss_header_length - boss_extdata_header_length);
-    u32 payload_size = static_cast<u32>(
-        decrypted_data.size() - (boss_content_header_length + boss_header_with_hash_length));
+    const u32 payload_size = static_cast<u32>(decrypted_data.size() - boss_entire_header_length);
     if (header.payload_size != payload_size) {
         LOG_WARNING(Service_BOSS, "Payload has incorrect size, was expecting {}, found {}",
                     u32(header.payload_size), payload_size);
         return false;
     }
     std::vector<u8> payload(payload_size);
-    std::memcpy(payload.data(),
-                decrypted_data.data() + boss_content_header_length + boss_header_with_hash_length,
-                payload_size);
+    std::memcpy(payload.data(), decrypted_data.data() + boss_entire_header_length, payload_size);
 
     // Temporarily also write raw data
     FileSys::Path raw_file_path = ("/" + std::string(file_name) + "_raw_data").c_str();
@@ -839,7 +844,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
         return false;
     }
     auto file = std::move(file_result).Unwrap();
-    header.header_length = 0x18;
+    header.header_length = boss_extdata_header_length;
     file->Write(0, boss_header_length, true, reinterpret_cast<u8*>(&header));
     file->Write(boss_header_length, payload_size, true, payload.data());
     file->Close();
@@ -892,10 +897,10 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         result = 0;
     } else if (cur_props.props[property_id].type().hash_code() ==
                typeid(std::vector<u8>).hash_code()) {
-        if (size != std::any_cast<std::vector<u8>>(cur_props.props[property_id]).size()) {
+        if (size != std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size()) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id,
-                      std::any_cast<std::vector<u8>>(cur_props.props[property_id]).size(), size);
+                      std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size(), size);
         }
         std::vector<u8> cur_prop(size);
         buffer.Read(cur_prop.data(), 0, size);
@@ -955,7 +960,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u8), size);
         }
-        u8 cur_prop = std::any_cast<u8>(cur_props.props[property_id]);
+        u8& cur_prop = std::any_cast<u8&>(cur_props.props[property_id]);
         buffer.Write(&cur_prop, 0, size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#04X}", property_id, cur_prop);
         result = 0;
@@ -964,7 +969,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u16), size);
         }
-        u16 cur_prop = std::any_cast<u16>(cur_props.props[property_id]);
+        u16& cur_prop = std::any_cast<u16&>(cur_props.props[property_id]);
         buffer.Write(&cur_prop, 0, size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#06X}", property_id, cur_prop);
         result = 0;
@@ -973,21 +978,21 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u32), size);
         }
-        u32 cur_prop = std::any_cast<u32>(cur_props.props[property_id]);
+        u32& cur_prop = std::any_cast<u32&>(cur_props.props[property_id]);
         buffer.Write(&cur_prop, 0, size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#10X}", property_id, cur_prop);
         result = 0;
     } else if (cur_props.props[property_id].type().hash_code() ==
                typeid(std::vector<u8>).hash_code()) {
-        if (size != std::any_cast<std::vector<u8>>(cur_props.props[property_id]).size()) {
+        if (size != std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size()) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id,
-                      std::any_cast<std::vector<u8>>(cur_props.props[property_id]).size(), size);
+                      std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size(), size);
         }
-        buffer.Write(std::any_cast<std::vector<u8>>(cur_props.props[property_id]).data(), 0, size);
+        buffer.Write(std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {}", property_id,
                   std::string(reinterpret_cast<char*>(
-                      std::any_cast<std::vector<u8>>(cur_props.props[property_id]).data())));
+                      std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).data())));
         result = 0;
     } else if (cur_props.props[property_id].type().hash_code() ==
                typeid(std::vector<u32>).hash_code()) {
@@ -996,11 +1001,12 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, certidlist_size * sizeof(u32), size);
         }
-        buffer.Write(std::any_cast<std::vector<u32>>(cur_props.props[property_id]).data(), 0, size);
+        buffer.Write(std::any_cast<std::vector<u32>&>(cur_props.props[property_id]).data(), 0,
+                     size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, values {:#10X},{:#10X},{:#10X}",
-                  property_id, std::any_cast<std::vector<u32>>(cur_props.props[property_id])[0],
-                  std::any_cast<std::vector<u32>>(cur_props.props[property_id])[1],
-                  std::any_cast<std::vector<u32>>(cur_props.props[property_id])[2]);
+                  property_id, std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[0],
+                  std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[1],
+                  std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[2]);
         result = 0;
     } else {
         // This should never happen?
@@ -1136,7 +1142,7 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
             if (!task_id_list[task_id].props.contains(url_id) ||
                 task_id_list[task_id].props[url_id].type().hash_code() !=
                     typeid(std::vector<u8>).hash_code() ||
-                std::any_cast<std::vector<u8>>(task_id_list[task_id].props[url_id]).size() !=
+                std::any_cast<std::vector<u8>&>(task_id_list[task_id].props[url_id]).size() !=
                     url_size) {
                 LOG_ERROR(Service_BOSS, "URL property is invalid");
             } else {
@@ -1164,23 +1170,8 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
 }
 
 void Module::Interface::StartTaskImmediate(Kernel::HLERequestContext& ctx) {
-    // IPC::RequestParser rp(ctx, 0x1D, 1, 2);
-    // const u32 size = rp.Pop<u32>();
-    // auto& buffer = rp.PopMappedBuffer();
-
-    // if(size>0x8){
-    // LOG_WARNING(Service_BOSS,"Task Id cannot be longer than 8");
-    // }
-    // else {
-    // std::string task_id(size,0);
-    // buffer.Read(task_id.data(),0,size);
-    // LOG_DEBUG(Service_BOSS,"Read task id {}",task_id);
-    // }
-
-    // IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    // rb.Push(RESULT_SUCCESS);
-    // rb.PushMappedBuffer(buffer);
     LOG_WARNING(Service_BOSS, "StartTaskImmediate called");
+    // StartTask and StartTaskImmediate do punch the same thing
     StartTask(ctx);
 
     // LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -1239,12 +1230,12 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
             if (task_id_list[task_id].props.contains(duration_id) &&
                 task_id_list[task_id].props[duration_id].type().hash_code() ==
                     typeid(u32).hash_code()) {
-                duration = std::any_cast<u32>(task_id_list[task_id].props[duration_id]);
+                duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
             }
             if (task_id_list[task_id].times_checked == 0) {
                 LOG_DEBUG(Service_BOSS, "Emulating task not started");
                 task_status = 5;
-            } else if (task_id_list[task_id].times_checked < 200) {
+            } else if (task_id_list[task_id].times_checked < times_to_check) {
                 LOG_DEBUG(Service_BOSS, "Emulating task running");
                 task_status = 2;
             } else {
@@ -1291,7 +1282,7 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
             if (task_id_list[task_id].props.contains(duration_id) &&
                 task_id_list[task_id].props[duration_id].type().hash_code() ==
                     typeid(u32).hash_code()) {
-                duration = std::any_cast<u32>(task_id_list[task_id].props[duration_id]);
+                duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
             }
             if (task_id_list[task_id].success) {
                 LOG_DEBUG(Service_BOSS, "Task ran successfully");
@@ -1362,7 +1353,7 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
             if (task_id_list[task_id].times_checked == 0) {
                 LOG_DEBUG(Service_BOSS, "Emulating task not started");
                 task_status = 5;
-            } else if (task_id_list[task_id].times_checked < 200) {
+            } else if (task_id_list[task_id].times_checked < times_to_check) {
                 LOG_DEBUG(Service_BOSS, "Emulating task running");
                 task_status = 2;
             } else {
@@ -1413,11 +1404,11 @@ void Module::Interface::GetTaskInfo(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
 }
 
-bool Module::Interface::GetNsDataEntryFromID(u32 ns_data_id, auto* entry) {
+bool Module::Interface::GetNsDataEntryFromID(u32 ns_data_id, NsDataEntry& entry) {
     std::vector<NsDataEntry> ns_data = GetNsDataEntries();
-    for (auto const& cur_entry : ns_data) {
+    for (const auto& cur_entry : ns_data) {
         if (cur_entry.header.ns_data_id == ns_data_id) {
-            *entry = cur_entry;
+            entry = cur_entry;
             return true;
         }
     }
@@ -1438,7 +1429,7 @@ void Module::Interface::DeleteNsData(Kernel::HLERequestContext& ctx) {
 void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x27, 3, 2);
     const u32 ns_data_id = rp.Pop<u32>();
-    const u8 type = rp.Pop<u8>();
+    const NsDataHeaderInfoType type = static_cast<NsDataHeaderInfoType>(rp.Pop<u8>());
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
@@ -1446,7 +1437,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     u32 result = 0xC8A0F843;
     u32 zero = 0;
     NsDataEntry entry;
-    bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
+    bool entry_success = GetNsDataEntryFromID(ns_data_id, entry);
     if (entry_success) {
         u64 program_id = entry.header.program_id;
         u32 datatype = entry.header.datatype;
@@ -1454,7 +1445,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
         u32 version = entry.header.version;
 
         switch (type) {
-        case 0x00:
+        case PROGRAM_ID:
             if (size != 8) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1463,7 +1454,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             result = 0;
             LOG_DEBUG(Service_BOSS, "Wrote out program id {}", program_id);
             break;
-        case 0x01:
+        case UNKNOWN:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1472,7 +1463,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             result = 0;
             LOG_DEBUG(Service_BOSS, "Wrote out unknown as zero");
             break;
-        case 0x02:
+        case DATATYPE:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1481,7 +1472,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             result = 0;
             LOG_DEBUG(Service_BOSS, "Wrote out content datatype {}", datatype);
             break;
-        case 0x03:
+        case PAYLOAD_SIZE:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1490,7 +1481,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             result = 0;
             LOG_DEBUG(Service_BOSS, "Wrote out payload size {}", payload_size);
             break;
-        case 0x04:
+        case NS_DATA_ID:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1499,7 +1490,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             result = 0;
             LOG_DEBUG(Service_BOSS, "Wrote out NsDataID {}", ns_data_id);
             break;
-        case 0x05:
+        case VERSION:
             if (size != 4) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1508,7 +1499,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             result = 0;
             LOG_DEBUG(Service_BOSS, "Wrote out version {}", version);
             break;
-        case 0x06:
+        case EVERYTHING:
             if (size != 0x20) {
                 LOG_WARNING(Service_BOSS, "Invalid size {} for type {}", size, type);
                 break;
@@ -1554,10 +1545,10 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     u32 read_size = 0;
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
-    FileSys::Path boss_path{GetBossDataDir()};
+    const FileSys::Path boss_path{GetBossDataDir()};
     auto archive_result = boss_extdata_archive_factory.Open(boss_path, 0);
     NsDataEntry entry;
-    bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
+    bool entry_success = GetNsDataEntryFromID(ns_data_id, entry);
     if (!archive_result.Succeeded() || !entry_success) {
         LOG_WARNING(Service_BOSS, "Opening Spotpass Extdata failed.");
     } else {
@@ -1654,7 +1645,7 @@ void Module::Interface::GetNsDataLastUpdate(Kernel::HLERequestContext& ctx) {
     u32 last_update = 0;
 
     NsDataEntry entry;
-    bool entry_success = GetNsDataEntryFromID(ns_data_id, &entry);
+    bool entry_success = GetNsDataEntryFromID(ns_data_id, entry);
     if (entry_success) {
         last_update = entry.header.download_date;
         LOG_DEBUG(Service_BOSS, "Last update: {}", last_update);
