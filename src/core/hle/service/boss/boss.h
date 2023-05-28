@@ -8,6 +8,8 @@
 #include <memory>
 #include <boost/serialization/shared_ptr.hpp>
 #include <core/loader/loader.h>
+#include "core/file_sys/archive_backend.h"
+#include "core/file_sys/directory_backend.h"
 #include "core/global.h"
 #include "core/hle/kernel/event.h"
 #include "core/hle/service/service.h"
@@ -26,12 +28,12 @@ constexpr u32 boss_header_length = 0x34;
 #pragma pack(push, 4)
 struct BossHeader {
     u8 header_length;
-    u8 zero1[11];
+    std::array<u8, 11> zero1;
     u32_be unknown;
     u32_be download_date;
-    u8 zero2[4];
+    std::array<u8, 4> zero2;
     u64_be program_id;
-    u8 zero3[4];
+    std::array<u8, 4> zero3;
     u32_be datatype;
     u32_be payload_size;
     u32_be ns_data_id;
@@ -60,7 +62,7 @@ struct BossPayloadHeader {
     INSERT_PADDING_BYTES(2);
     u16_be hash_type;
     u16_be rsa_size;
-    u8 iv_start[0xC];
+    std::array<u8, 0xC> iv_start;
 };
 #pragma pack(pop)
 
@@ -69,6 +71,7 @@ static_assert(sizeof(BossPayloadHeader) == 0x28,
 
 constexpr u32 boss_content_header_length = 0x132;
 constexpr u32 boss_header_with_hash_length = 0x13C;
+constexpr u32 boss_entire_header_length = boss_content_header_length + boss_header_with_hash_length;
 constexpr u32 boss_extdata_header_length = 0x18;
 constexpr u32 boss_a_entry_size = 0x800;
 constexpr u32 boss_s_entry_size = 0xC00;
@@ -83,6 +86,19 @@ struct NsDataEntry {
 };
 
 constexpr u8 task_id_size = 8;
+constexpr u32 times_to_check = 200;
+constexpr u32 files_to_read = 100;
+
+enum NsDataHeaderInfoType {
+    PROGRAM_ID,
+    UNKNOWN,
+    DATATYPE,
+    PAYLOAD_SIZE,
+    NS_DATA_ID,
+    VERSION,
+    EVERYTHING
+};
+
 constexpr u16 interval_id = 0x03;
 constexpr u16 duration_id = 0x04;
 constexpr u16 url_id = 0x07;
@@ -1103,12 +1119,12 @@ public:
         std::map<std::string, BossTaskProperties> task_id_list;
         BossTaskProperties cur_props;
 
-        auto GetBossDataDir();
+        FileSys::Path GetBossDataDir();
         bool DownloadBossDataFromURL(std::string_view url, std::string_view file_name);
         std::vector<NsDataEntry> GetNsDataEntries();
-        u32 GetBossExtDataFiles(u32 files_to_read, auto* boss_files);
-        u16 GetOutputEntries(u32 filter, u32 max_entries, auto* buffer);
-        bool GetNsDataEntryFromID(u32 ns_data_id, auto* entry);
+        u32 GetBossExtDataFiles(std::vector<FileSys::Entry>& boss_files);
+        u16 GetOutputEntries(u32 filter, u32 max_entries, Kernel::MappedBuffer& buffer);
+        bool GetNsDataEntryFromID(u32 ns_data_id, NsDataEntry& entry);
 
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {
