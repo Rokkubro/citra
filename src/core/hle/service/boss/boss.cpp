@@ -1140,7 +1140,7 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
                 LOG_ERROR(Service_BOSS, "URL property is invalid");
             } else {
                 char* url_pointer = reinterpret_cast<char*>(
-                    std::any_cast<std::vector<u8>>(task_id_list[task_id].props[url_id]).data());
+                    std::any_cast<std::vector<u8>&>(task_id_list[task_id].props[url_id]).data());
                 std::string_view url(url_pointer, strnlen(url_pointer, url_size));
                 std::string_view file_name(task_id.c_str(),
                                            strnlen(task_id.c_str(), task_id.size()));
