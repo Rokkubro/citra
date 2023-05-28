@@ -35,6 +35,7 @@
 #include "core/hle/service/boss/boss_p.h"
 #include "core/hle/service/boss/boss_u.h"
 #include "core/hw/aes/key.h"
+#include <codecvt>
 
 namespace Service::BOSS {
 
@@ -796,7 +797,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::strin
             std::u16string news_message_string(
                 reinterpret_cast<char16_t*>(payload.data() + news_header_size),
                 news_message_size / 2);
-            std::wstring_convert<std::codecvt<char16_t, char, std::mbstate_t>, char16_t> convert;
+            std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
             LOG_DEBUG(Service_BOSS, "News title is: {}", convert.to_bytes(news_title_string));
             LOG_DEBUG(Service_BOSS, "News message is:\n{}", convert.to_bytes(news_message_string));
             if (payload.size() != news_header_size + news_message_size) {
@@ -922,7 +923,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-    rb.Push(RESULT_SUCCESS);
+    rb.Push(result);
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
