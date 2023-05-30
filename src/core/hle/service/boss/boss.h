@@ -5,6 +5,7 @@
 #pragma once
 
 #include <any>
+#include <future>
 #include <memory>
 #include <boost/serialization/shared_ptr.hpp>
 #include <core/loader/loader.h>
@@ -115,7 +116,8 @@ constexpr u16 taskidlist_id = 0x36;
 constexpr size_t taskidlist_size = 0x400;
 
 struct BossTaskProperties {
-    bool success;
+    std::future<bool> download_task;
+    bool task_result;
     u32 times_checked;
     std::map<u16, std::any> props{
         {0x00, u8()},
@@ -1119,8 +1121,8 @@ public:
         std::map<std::string, BossTaskProperties> task_id_list;
         BossTaskProperties cur_props;
 
-        FileSys::Path GetBossDataDir();
-        bool DownloadBossDataFromURL(std::string_view url, std::string_view file_name);
+        static FileSys::Path GetBossDataDir();
+        static bool DownloadBossDataFromURL(std::string_view url, std::string_view file_name);
         std::vector<NsDataEntry> GetNsDataEntries();
         u32 GetBossExtDataFiles(std::vector<FileSys::Entry>& boss_files);
         u16 GetOutputEntries(u32 filter, u32 max_entries, Kernel::MappedBuffer& buffer);

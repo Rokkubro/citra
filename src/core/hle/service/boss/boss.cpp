@@ -1097,24 +1097,6 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
     // after running the task?
     u8 task_service_status = 1;
 
-    if (size > 0x8) {
-        LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
-    } else {
-        std::string task_id(size, 0);
-        buffer.Read(task_id.data(), 0, size);
-        LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        if (!task_id_list.contains(task_id)) {
-            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
-        } else {
-            LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            if (task_id_list[task_id].success) {
-                LOG_DEBUG(Service_BOSS, "Task ran successfully");
-            } else {
-                LOG_WARNING(Service_BOSS, "Task failed");
-            }
-        }
-    }
-
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
     rb.Push<u8>(task_service_status); // stub 0 ( 8bit value) this is not taskstatus
@@ -1149,12 +1131,8 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
                 std::string_view url(url_pointer, strnlen(url_pointer, url_size));
                 std::string_view file_name(task_id.c_str(),
                                            strnlen(task_id.c_str(), task_id.size()));
-                if (DownloadBossDataFromURL(url, file_name)) {
-                    LOG_DEBUG(Service_BOSS, "Downloaded from {} successfully", url);
-                    task_id_list[task_id].success = true;
-                } else {
-                    LOG_WARNING(Service_BOSS, "Failed to download from {}", url);
-                }
+                task_id_list[task_id].download_task =
+                    std::async(std::launch::async, DownloadBossDataFromURL, url, file_name);
             }
         }
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
@@ -1210,9 +1188,10 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     const s8 state = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
+
     u8 task_status = 0;
 
-    u32 duration = 30;
+    u32 duration = 0;
 
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
@@ -1222,22 +1201,42 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
         if (!task_id_list.contains(task_id)) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+            task_status = 5;
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            // Get the duration from the task if available
-            if (task_id_list[task_id].props.contains(duration_id) &&
-                task_id_list[task_id].props[duration_id].type().hash_code() ==
-                    typeid(u32).hash_code()) {
-                duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
-            }
             if (task_id_list[task_id].times_checked == 0) {
+                // Get the duration from the task if available
+                if (task_id_list[task_id].props.contains(duration_id) &&
+                    task_id_list[task_id].props[duration_id].type().hash_code() ==
+                        typeid(u32).hash_code()) {
+                    duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
+                }
                 LOG_DEBUG(Service_BOSS, "Emulating task not started");
                 task_status = 5;
             } else if (task_id_list[task_id].times_checked < times_to_check) {
                 LOG_DEBUG(Service_BOSS, "Emulating task running");
                 task_status = 2;
+            } else if (task_id_list[task_id].download_task.valid()) {
+                LOG_DEBUG(Service_BOSS, "Task is still running");
+                auto status =
+                    task_id_list[task_id].download_task.wait_for(std::chrono::microseconds(0));
+                if (status == std::future_status::ready) {
+                    LOG_DEBUG(Service_BOSS, "Task just finished");
+                    task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
+                    if (task_id_list[task_id].task_result) {
+                        LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                        task_status = 0;
+                    } else {
+                        LOG_WARNING(Service_BOSS, "Task failed");
+                        task_status = 7;
+                    }
+                } else {
+                    LOG_DEBUG(Service_BOSS, "Task is still running");
+                    task_status = 2;
+                }
             } else {
-                if (task_id_list[task_id].success) {
+                LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
+                if (task_id_list[task_id].task_result) {
                     LOG_DEBUG(Service_BOSS, "Task ran successfully");
                 } else {
                     LOG_WARNING(Service_BOSS, "Task failed");
@@ -1274,6 +1273,7 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
         if (!task_id_list.contains(task_id)) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+            task_status = 5;
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
             // Get the duration from the task if available
@@ -1282,12 +1282,27 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
                     typeid(u32).hash_code()) {
                 duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
             }
-            if (task_id_list[task_id].success) {
-                LOG_DEBUG(Service_BOSS, "Task ran successfully");
+            if (task_id_list[task_id].download_task.valid()) {
+                LOG_DEBUG(Service_BOSS, "Task is still running");
+                LOG_DEBUG(Service_BOSS, "Waiting for task to finish...");
+                task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
+                if (task_id_list[task_id].task_result) {
+                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                    task_status = 0;
+                } else {
+                    LOG_WARNING(Service_BOSS, "Task failed");
+                    task_status = 7;
+                }
             } else {
-                LOG_WARNING(Service_BOSS, "Task failed");
-                task_status = 7;
+                LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
+                if (task_id_list[task_id].task_result) {
+                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                } else {
+                    LOG_WARNING(Service_BOSS, "Task failed");
+                    task_status = 7;
+                }
             }
+            task_id_list[task_id].times_checked++;
         }
     }
 
@@ -1346,6 +1361,7 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
         if (!task_id_list.contains(task_id)) {
             LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+            task_status = 5;
         } else {
             LOG_DEBUG(Service_BOSS, "Found currently running task id");
             if (task_id_list[task_id].times_checked == 0) {
@@ -1354,8 +1370,27 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
             } else if (task_id_list[task_id].times_checked < times_to_check) {
                 LOG_DEBUG(Service_BOSS, "Emulating task running");
                 task_status = 2;
+            } else if (task_id_list[task_id].download_task.valid()) {
+                LOG_DEBUG(Service_BOSS, "Task is still running");
+                auto status =
+                    task_id_list[task_id].download_task.wait_for(std::chrono::microseconds(0));
+                if (status == std::future_status::ready) {
+                    LOG_DEBUG(Service_BOSS, "Task just finished");
+                    task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
+                    if (task_id_list[task_id].task_result) {
+                        LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                        task_status = 0;
+                    } else {
+                        LOG_WARNING(Service_BOSS, "Task failed");
+                        task_status = 7;
+                    }
+                } else {
+                    LOG_DEBUG(Service_BOSS, "Task is still running");
+                    task_status = 2;
+                }
             } else {
-                if (task_id_list[task_id].success) {
+                LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
+                if (task_id_list[task_id].task_result) {
                     LOG_DEBUG(Service_BOSS, "Task ran successfully");
                 } else {
                     LOG_WARNING(Service_BOSS, "Task failed");
