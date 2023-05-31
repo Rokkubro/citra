@@ -87,10 +87,9 @@ struct NsDataEntry {
 };
 
 constexpr u8 task_id_size = 8;
-constexpr u32 times_to_check = 200;
 constexpr u32 files_to_read = 100;
 
-enum NsDataHeaderInfoType {
+enum NsDataHeaderInfoType : u8 {
     PROGRAM_ID,
     UNKNOWN,
     DATATYPE,
@@ -99,6 +98,8 @@ enum NsDataHeaderInfoType {
     VERSION,
     EVERYTHING
 };
+
+enum TaskStatus : u8 { TASK_SUCCESS = 0, TASK_RUNNING = 2, TASK_NOT_STARTED = 5, TASK_FAILED = 7 };
 
 constexpr u16 interval_id = 0x03;
 constexpr u16 duration_id = 0x04;
@@ -1122,11 +1123,12 @@ public:
         BossTaskProperties cur_props;
 
         static FileSys::Path GetBossDataDir();
-        static bool DownloadBossDataFromURL(std::string_view url, std::string_view file_name);
+        static bool DownloadBossDataFromURL(std::string url, std::string file_name);
         std::vector<NsDataEntry> GetNsDataEntries();
         u32 GetBossExtDataFiles(std::vector<FileSys::Entry>& boss_files);
         u16 GetOutputEntries(u32 filter, u32 max_entries, Kernel::MappedBuffer& buffer);
         bool GetNsDataEntryFromID(u32 ns_data_id, NsDataEntry& entry);
+        std::pair<u8, u32> GetTaskStatusAndDuration(std::string task_id, bool wait_on_result);
 
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {

@@ -148,7 +148,7 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
                             LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
                             task_id_list.erase(task_id);
                         }
-                        task_id_list.emplace(task_id, cur_props);
+                        task_id_list.emplace(task_id, std::move(cur_props));
                         cur_props = BossTaskProperties();
                     }
                 }
@@ -159,7 +159,7 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) programID={:#018X}", programID);
+    LOG_DEBUG(Service_BOSS, "programID={:#018X}", programID);
 }
 
 void Module::Interface::SetStorageInfo(Kernel::HLERequestContext& ctx) {
@@ -276,16 +276,16 @@ void Module::Interface::RegisterTask(Kernel::HLERequestContext& ctx) {
         LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
         task_id_list.erase(task_id);
     }
-    task_id_list.emplace(task_id, cur_props);
-    LOG_DEBUG(Service_BOSS, "read task id {}", task_id);
+    task_id_list.emplace(task_id, std::move(cur_props));
     cur_props = BossTaskProperties();
+    LOG_DEBUG(Service_BOSS, "read task id {}", task_id);
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
-                size, unk_param2, unk_param3);
+    LOG_DEBUG(Service_BOSS, "size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}", size,
+              unk_param2, unk_param3);
 }
 
 void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
@@ -314,7 +314,7 @@ void Module::Interface::UnregisterTask(Kernel::HLERequestContext& ctx) {
     rb.Push(result);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}", size, unk_param2);
+    LOG_DEBUG(Service_BOSS, "size={:#010X}, unk_param2={:#04X}", size, unk_param2);
 }
 
 void Module::Interface::ReconfigureTask(Kernel::HLERequestContext& ctx) {
@@ -359,7 +359,7 @@ void Module::Interface::GetTaskIdList(Kernel::HLERequestContext& ctx) {
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) called");
+    LOG_DEBUG(Service_BOSS, "called");
 }
 
 void Module::Interface::GetStepIdList(Kernel::HLERequestContext& ctx) {
@@ -535,10 +535,10 @@ void Module::Interface::GetNsDataIdList(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
@@ -557,10 +557,10 @@ void Module::Interface::GetNsDataIdList1(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
@@ -579,10 +579,10 @@ void Module::Interface::GetNsDataIdList2(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
 void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
@@ -601,13 +601,13 @@ void Module::Interface::GetNsDataIdList3(Kernel::HLERequestContext& ctx) {
     rb.Push<u16>(0);             /// Last word-index copied to output in the internal NsDataId list.
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS,
-                "(STUBBED) filter={:#010X}, max_entries={:#010X}, "
-                "word_index_start={:#06X}, start_ns_data_id={:#010X}",
-                filter, max_entries, word_index_start, start_ns_data_id);
+    LOG_DEBUG(Service_BOSS,
+              "filter={:#010X}, max_entries={:#010X}, "
+              "word_index_start={:#06X}, start_ns_data_id={:#010X}",
+              filter, max_entries, word_index_start, start_ns_data_id);
 }
 
-bool Module::Interface::DownloadBossDataFromURL(std::string_view url, std::string_view file_name) {
+bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string file_name) {
 #ifdef ENABLE_WEB_SERVICE
     auto url_parse_result = boost::urls::parse_uri(url);
     if (url_parse_result.has_error()) {
@@ -891,7 +891,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         u32 cur_prop = 0;
         buffer.Read(&cur_prop, 0, size);
         cur_props.props[property_id] = cur_prop;
-        LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#10X}", property_id, cur_prop);
+        LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#010X}", property_id, cur_prop);
         result = 0;
     } else if (cur_props.props[property_id].type().hash_code() ==
                typeid(std::vector<u8>).hash_code()) {
@@ -916,7 +916,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         std::vector<u32> cur_prop(certidlist_size);
         buffer.Read(cur_prop.data(), 0, size);
         cur_props.props[property_id] = cur_prop;
-        LOG_DEBUG(Service_BOSS, "Read property {:#06X}, values {:#10X},{:#10X},{:#10X}",
+        LOG_DEBUG(Service_BOSS, "Read property {:#06X}, values {:#010X},{:#010X},{:#010X}",
                   property_id, cur_prop[0], cur_prop[1], cur_prop[2]);
         result = 0;
     } else {
@@ -929,7 +929,7 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     rb.Push(result);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
+    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
 }
 
 void Module::Interface::SendPropertyHandle(Kernel::HLERequestContext& ctx) {
@@ -978,7 +978,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
         }
         u32& cur_prop = std::any_cast<u32&>(cur_props.props[property_id]);
         buffer.Write(&cur_prop, 0, size);
-        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#10X}", property_id, cur_prop);
+        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#010X}", property_id, cur_prop);
         result = 0;
     } else if (cur_props.props[property_id].type().hash_code() ==
                typeid(std::vector<u8>).hash_code()) {
@@ -1001,7 +1001,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
         }
         buffer.Write(std::any_cast<std::vector<u32>&>(cur_props.props[property_id]).data(), 0,
                      size);
-        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, values {:#10X},{:#10X},{:#10X}",
+        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, values {:#010X},{:#010X},{:#010X}",
                   property_id, std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[0],
                   std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[1],
                   std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[2]);
@@ -1017,7 +1017,7 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
     rb.Push<u32>(size); // The size of the property per id, not how much data
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) property_id={:#06X}, size={:#010X}", property_id, size);
+    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
 }
 
 void Module::Interface::UpdateTaskInterval(Kernel::HLERequestContext& ctx) {
@@ -1099,7 +1099,7 @@ void Module::Interface::GetTaskServiceStatus(Kernel::HLERequestContext& ctx) {
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(RESULT_SUCCESS);
-    rb.Push<u8>(task_service_status); // stub 0 ( 8bit value) this is not taskstatus
+    rb.Push<u8>(task_service_status); // stub 1 ( 8bit value) this is not taskstatus
     rb.PushMappedBuffer(buffer);
 
     LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
@@ -1128,9 +1128,8 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
             } else {
                 char* url_pointer = reinterpret_cast<char*>(
                     std::any_cast<std::vector<u8>&>(task_id_list[task_id].props[url_id]).data());
-                std::string_view url(url_pointer, strnlen(url_pointer, url_size));
-                std::string_view file_name(task_id.c_str(),
-                                           strnlen(task_id.c_str(), task_id.size()));
+                std::string url(url_pointer, strnlen(url_pointer, url_size));
+                std::string file_name(task_id.c_str(), strnlen(task_id.c_str(), task_id.size()));
                 task_id_list[task_id].download_task =
                     std::async(std::launch::async, DownloadBossDataFromURL, url, file_name);
             }
@@ -1142,15 +1141,14 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
     rb.Push(RESULT_SUCCESS);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_DEBUG(Service_BOSS, "size={:#010X}", size);
 }
 
 void Module::Interface::StartTaskImmediate(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_BOSS, "StartTaskImmediate called");
     // StartTask and StartTaskImmediate do punch the same thing
     StartTask(ctx);
-
-    // LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_DEBUG(Service_BOSS, "called");
 }
 
 void Module::Interface::CancelTask(Kernel::HLERequestContext& ctx) {
@@ -1183,68 +1181,76 @@ void Module::Interface::GetTaskFinishHandle(Kernel::HLERequestContext& ctx) {
     LOG_WARNING(Service_BOSS, "(STUBBED) called");
 }
 
+std::pair<u8, u32> Module::Interface::GetTaskStatusAndDuration(std::string task_id,
+                                                               bool wait_on_result) {
+    // Default duration is zero -> means no more runs of the task are allowed
+    u32 duration = 0;
+
+    if (!task_id_list.contains(task_id)) {
+        LOG_WARNING(Service_BOSS, "Could not find task_id in list");
+        return {TASK_FAILED, duration};
+    }
+    LOG_DEBUG(Service_BOSS, "Found currently running task id");
+    task_id_list[task_id].times_checked++;
+
+    // Get the duration from the task if available
+    if (task_id_list[task_id].props.contains(duration_id) &&
+        task_id_list[task_id].props[duration_id].type().hash_code() == typeid(u32).hash_code()) {
+        duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
+    }
+
+    if (task_id_list[task_id].download_task.valid()) {
+        LOG_DEBUG(Service_BOSS, "Task is still running");
+        auto status = task_id_list[task_id].download_task.wait_for(std::chrono::microseconds(0));
+        if (status == std::future_status::ready || wait_on_result) {
+
+            LOG_DEBUG(Service_BOSS,
+                      wait_on_result ? "Waiting for result..." : "Task just finished");
+
+            task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
+
+            if (task_id_list[task_id].task_result) {
+                LOG_DEBUG(Service_BOSS, "Task ran successfully");
+                return {TASK_SUCCESS, duration};
+            }
+
+            LOG_WARNING(Service_BOSS, "Task failed");
+            return {TASK_FAILED, duration};
+        }
+
+        LOG_DEBUG(Service_BOSS, "Task is still running");
+        return {TASK_RUNNING, duration};
+    }
+
+    LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
+
+    if (task_id_list[task_id].task_result) {
+        LOG_DEBUG(Service_BOSS, "Task ran successfully");
+        return {TASK_SUCCESS, duration};
+    }
+
+    LOG_WARNING(Service_BOSS, "Task failed");
+    return {TASK_FAILED, duration};
+}
+
 void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x20, 2, 2);
     const u32 size = rp.Pop<u32>();
     const s8 state = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
-    u8 task_status = 0;
-
-    u32 duration = 0;
+    u8 task_status;
+    u32 duration;
 
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+        task_status = TASK_FAILED;
+        duration = 0;
     } else {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        if (!task_id_list.contains(task_id)) {
-            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
-            task_status = 5;
-        } else {
-            LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            if (task_id_list[task_id].times_checked == 0) {
-                // Get the duration from the task if available
-                if (task_id_list[task_id].props.contains(duration_id) &&
-                    task_id_list[task_id].props[duration_id].type().hash_code() ==
-                        typeid(u32).hash_code()) {
-                    duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
-                }
-                LOG_DEBUG(Service_BOSS, "Emulating task not started");
-                task_status = 5;
-            } else if (task_id_list[task_id].times_checked < times_to_check) {
-                LOG_DEBUG(Service_BOSS, "Emulating task running");
-                task_status = 2;
-            } else if (task_id_list[task_id].download_task.valid()) {
-                LOG_DEBUG(Service_BOSS, "Task is still running");
-                auto status =
-                    task_id_list[task_id].download_task.wait_for(std::chrono::microseconds(0));
-                if (status == std::future_status::ready) {
-                    LOG_DEBUG(Service_BOSS, "Task just finished");
-                    task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
-                    if (task_id_list[task_id].task_result) {
-                        LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                        task_status = 0;
-                    } else {
-                        LOG_WARNING(Service_BOSS, "Task failed");
-                        task_status = 7;
-                    }
-                } else {
-                    LOG_DEBUG(Service_BOSS, "Task is still running");
-                    task_status = 2;
-                }
-            } else {
-                LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
-                if (task_id_list[task_id].task_result) {
-                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                } else {
-                    LOG_WARNING(Service_BOSS, "Task failed");
-                    task_status = 7;
-                }
-            }
-            task_id_list[task_id].times_checked++;
-        }
+        std::tie(task_status, duration) = GetTaskStatusAndDuration(task_id, false);
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(4, 2);
@@ -1254,7 +1260,7 @@ void Module::Interface::GetTaskState(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0);           /// unknown, usually 0
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, state={:#06X}", size, state);
+    LOG_DEBUG(Service_BOSS, "size={:#010X}, state={:#06X}", size, state);
 }
 
 void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
@@ -1267,43 +1273,13 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
 
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+        task_status = TASK_FAILED;
+        duration = 0;
     } else {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        if (!task_id_list.contains(task_id)) {
-            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
-            task_status = 5;
-        } else {
-            LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            // Get the duration from the task if available
-            if (task_id_list[task_id].props.contains(duration_id) &&
-                task_id_list[task_id].props[duration_id].type().hash_code() ==
-                    typeid(u32).hash_code()) {
-                duration = std::any_cast<u32&>(task_id_list[task_id].props[duration_id]);
-            }
-            if (task_id_list[task_id].download_task.valid()) {
-                LOG_DEBUG(Service_BOSS, "Task is still running");
-                LOG_DEBUG(Service_BOSS, "Waiting for task to finish...");
-                task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
-                if (task_id_list[task_id].task_result) {
-                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                    task_status = 0;
-                } else {
-                    LOG_WARNING(Service_BOSS, "Task failed");
-                    task_status = 7;
-                }
-            } else {
-                LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
-                if (task_id_list[task_id].task_result) {
-                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                } else {
-                    LOG_WARNING(Service_BOSS, "Task failed");
-                    task_status = 7;
-                }
-            }
-            task_id_list[task_id].times_checked++;
-        }
+        std::tie(task_status, duration) = GetTaskStatusAndDuration(task_id, true);
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(4, 2);
@@ -1315,7 +1291,7 @@ void Module::Interface::GetTaskResult(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(0);           // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}", size);
+    LOG_DEBUG(Service_BOSS, "size={:#010X}", size);
 }
 
 void Module::Interface::GetTaskCommErrorCode(Kernel::HLERequestContext& ctx) {
@@ -1351,54 +1327,16 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
     const u8 unk_param3 = rp.Pop<u8>();
     auto& buffer = rp.PopMappedBuffer();
 
-    u8 task_status = 0;
+    u8 task_status;
 
     if (size > 0x8) {
         LOG_WARNING(Service_BOSS, "Task Id cannot be longer than 8");
+        task_status = TASK_FAILED;
     } else {
         std::string task_id(size, 0);
         buffer.Read(task_id.data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Read task id {}", task_id);
-        if (!task_id_list.contains(task_id)) {
-            LOG_WARNING(Service_BOSS, "Could not find task_id in list");
-            task_status = 5;
-        } else {
-            LOG_DEBUG(Service_BOSS, "Found currently running task id");
-            if (task_id_list[task_id].times_checked == 0) {
-                LOG_DEBUG(Service_BOSS, "Emulating task not started");
-                task_status = 5;
-            } else if (task_id_list[task_id].times_checked < times_to_check) {
-                LOG_DEBUG(Service_BOSS, "Emulating task running");
-                task_status = 2;
-            } else if (task_id_list[task_id].download_task.valid()) {
-                LOG_DEBUG(Service_BOSS, "Task is still running");
-                auto status =
-                    task_id_list[task_id].download_task.wait_for(std::chrono::microseconds(0));
-                if (status == std::future_status::ready) {
-                    LOG_DEBUG(Service_BOSS, "Task just finished");
-                    task_id_list[task_id].task_result = task_id_list[task_id].download_task.get();
-                    if (task_id_list[task_id].task_result) {
-                        LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                        task_status = 0;
-                    } else {
-                        LOG_WARNING(Service_BOSS, "Task failed");
-                        task_status = 7;
-                    }
-                } else {
-                    LOG_DEBUG(Service_BOSS, "Task is still running");
-                    task_status = 2;
-                }
-            } else {
-                LOG_DEBUG(Service_BOSS, "Task has finished running or is invalid");
-                if (task_id_list[task_id].task_result) {
-                    LOG_DEBUG(Service_BOSS, "Task ran successfully");
-                } else {
-                    LOG_WARNING(Service_BOSS, "Task failed");
-                    task_status = 7;
-                }
-            }
-            task_id_list[task_id].times_checked++;
-        }
+        task_status = GetTaskStatusAndDuration(task_id, false).first;
     }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
@@ -1406,8 +1344,8 @@ void Module::Interface::GetTaskStatus(Kernel::HLERequestContext& ctx) {
     rb.Push<u8>(task_status); // stub 0 (8 bit value)
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}",
-                size, unk_param2, unk_param3);
+    LOG_DEBUG(Service_BOSS, "size={:#010X}, unk_param2={:#04X}, unk_param3={:#04X}", size,
+              unk_param2, unk_param3);
 }
 
 void Module::Interface::GetTaskError(Kernel::HLERequestContext& ctx) {
@@ -1466,8 +1404,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
-    // This is the error code for NsDataID not found
-    u32 result = 0xC8A0F843;
+    u32 result = -1;
     u32 zero = 0;
     NsDataEntry entry;
     bool entry_success = GetNsDataEntryFromID(ns_data_id, entry);
@@ -1554,7 +1491,7 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
             break;
         default:
             LOG_WARNING(Service_BOSS, "Unknown header info type {}", type);
-            result = 0;
+            result = -1;
         }
     }
 
@@ -1562,8 +1499,8 @@ void Module::Interface::GetNsDataHeaderInfo(Kernel::HLERequestContext& ctx) {
     rb.Push(result);
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, type={:#04X}, size={:#010X}",
-                ns_data_id, type, size);
+    LOG_DEBUG(Service_BOSS, "ns_data_id={:#010X}, type={:#04X}, size={:#010X}", ns_data_id, type,
+              size);
 }
 
 void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
@@ -1574,7 +1511,7 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     auto& buffer = rp.PopMappedBuffer();
 
     // This is the error code for NsDataID not found
-    u32 result = 0xC8A0F843;
+    u32 result = -1;
     u32 read_size = 0;
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
@@ -1620,8 +1557,8 @@ void Module::Interface::ReadNsData(Kernel::HLERequestContext& ctx) {
     rb.Push<u32>(0);         /// unknown
     rb.PushMappedBuffer(buffer);
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}, offset={:#018X}, size={:#010X}",
-                ns_data_id, offset, size);
+    LOG_DEBUG(Service_BOSS, "ns_data_id={:#010X}, offset={:#018X}, size={:#010X}", ns_data_id,
+              offset, size);
 }
 
 void Module::Interface::SetNsDataAdditionalInfo(Kernel::HLERequestContext& ctx) {
@@ -1689,7 +1626,7 @@ void Module::Interface::GetNsDataLastUpdate(Kernel::HLERequestContext& ctx) {
     rb.Push<u32>(0);           // stub 0 (32bit value)
     rb.Push<u32>(last_update); // stub 0 (32bit value)
 
-    LOG_WARNING(Service_BOSS, "(STUBBED) ns_data_id={:#010X}", ns_data_id);
+    LOG_DEBUG(Service_BOSS, "ns_data_id={:#010X}", ns_data_id);
 }
 
 void Module::Interface::GetErrorCode(Kernel::HLERequestContext& ctx) {
@@ -1786,22 +1723,9 @@ void Module::Interface::GetTaskProperty0(Kernel::HLERequestContext& ctx) {
 }
 
 void Module::Interface::RegisterImmediateTask(Kernel::HLERequestContext& ctx) {
-    /*     IPC::RequestParser rp(ctx, 0x35, 3, 2);
-        const u32 size = rp.Pop<u32>();
-        const u8 unk_param2 = rp.Pop<u8>();
-        const u8 unk_param3 = rp.Pop<u8>();
-        auto& buffer = rp.PopMappedBuffer();
-
-        IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
-        rb.Push(RESULT_SUCCESS);
-        rb.PushMappedBuffer(buffer);
-
-        LOG_WARNING(Service_BOSS, "(STUBBED) size={:#010X}, unk_param2={:#04X},
-       unk_param3={:#04X}", size, unk_param2, unk_param3); */
-
-    LOG_WARNING(Service_BOSS, "RegisterImmediateTask called");
     // These seem to do the same thing...
     RegisterTask(ctx);
+    LOG_DEBUG(Service_BOSS, "called");
 }
 
 void Module::Interface::SetTaskQuery(Kernel::HLERequestContext& ctx) {
