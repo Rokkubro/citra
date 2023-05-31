@@ -106,6 +106,7 @@ android {
             cmake {
                 arguments "-DENABLE_QT=0", // Don't use QT
                         "-DENABLE_SDL2=0", // Don't use SDL
+                        "-DENABLE_LTO=ON",
                         "-DANDROID_ARM_NEON=true", // cryptopp requires Neon to work
                         "-DBUNDLE_SPEEX=ON"
 
