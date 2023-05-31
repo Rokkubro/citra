@@ -150,15 +150,19 @@ jobs:
         shell: bash
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
-      - name: configure Pagefile
+      - name: Increase Pagefile
         uses: al-cheb/configure-pagefile-action@v1.2
         with:
-          minimum-size: 5GB
+          minimum-size: 6GB
       - name: Build
         run: ./.ci/windows-msvc/build.sh
         shell: bash
         env:
           ENABLE_COMPATIBILITY_REPORTING: "ON"
+      - name: Decrease Pagefile
+        uses: al-cheb/configure-pagefile-action@v1.2
+        with:
+          minimum-size: 2GB
       - name: Pack
         run: ./.ci/windows-msvc/upload.ps1
       - name: Upload
