@@ -160,11 +160,6 @@ jobs:
         shell: bash
         env:
           ENABLE_COMPATIBILITY_REPORTING: "ON"
-      - name: Decrease Pagefile
-        uses: al-cheb/configure-pagefile-action@v1.2
-        with:
-          minimum-size: 2GB
-          maximum-size: 4GB
       - name: Pack
         run: ./.ci/windows-msvc/upload.ps1
       - name: Upload
