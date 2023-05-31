@@ -150,10 +150,10 @@ jobs:
         shell: bash
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
-      - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
+      - name: configure Pagefile
+        uses: al-cheb/configure-pagefile-action@v1.2
         with:
-          swap-size-gb: 10
+          minimum-size: 10GB
       - name: Build
         run: ./.ci/windows-msvc/build.sh
         shell: bash
