@@ -153,7 +153,8 @@ jobs:
       - name: Increase Pagefile
         uses: al-cheb/configure-pagefile-action@v1.2
         with:
-          minimum-size: 6GB
+          minimum-size: 2GB
+          maximum-size: 8GB
       - name: Build
         run: ./.ci/windows-msvc/build.sh
         shell: bash
@@ -163,6 +164,7 @@ jobs:
         uses: al-cheb/configure-pagefile-action@v1.2
         with:
           minimum-size: 2GB
+          maximum-size: 4GB
       - name: Pack
         run: ./.ci/windows-msvc/upload.ps1
       - name: Upload
