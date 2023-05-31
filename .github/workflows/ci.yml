@@ -27,7 +27,7 @@ jobs:
       matrix:
         image: ["linux-appimage", "linux-fresh", "linux-frozen", "linux-mingw"]
     container:
-      image: citraemu/build-environments:${{ matrix.image }}
+      image: rokkubro/build-environments:${{ matrix.image }}
       options: -u 1001
     steps:
       - uses: actions/checkout@v3
@@ -150,6 +150,19 @@ jobs:
         shell: bash
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
+      - name: Increase Pagefile
+        uses: al-cheb/configure-pagefile-action@v1.2
+        with:
+          minimum-size: 2GB
+          maximum-size: 6GB
+      - name: Setup Vulkan SDK
+        uses: humbletim/setup-vulkan-sdk@v1.2.0
+        with:
+          vulkan-query-version: latest
+          vulkan-components: Glslang
+          vulkan-use-cache: true
+      - name: Test glslangValidator
+        run: glslangValidator --version
       - name: Build
         run: ./.ci/windows-msvc/build.sh
         shell: bash
@@ -186,8 +199,9 @@ jobs:
           echo $GIT_TAG_NAME
       - name: Deps
         run: |
-          sudo apt-get update
-          sudo apt-get install ccache apksigner -y
+          sudo add-apt-repository -y ppa:theofficialgman/gpu-tools
+          sudo apt-get update -y
+          sudo apt-get install ccache glslang-dev glslang-tools apksigner -y
       - name: Build
         run: ./.ci/android/build.sh
       - name: Copy and sign artifacts

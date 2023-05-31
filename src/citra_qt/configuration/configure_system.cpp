@@ -247,9 +247,10 @@ ConfigureSystem::ConfigureSystem(QWidget* parent)
     ui->combo_download_set->setCurrentIndex(0);    // set to Minimal
     ui->combo_download_region->setCurrentIndex(0); // set to the base region
 
-    bool keys_available = true;
     HW::AES::InitKeys(true);
-    for (u8 i = 0; i < HW::AES::MaxCommonKeySlot; i++) {
+    bool keys_available = HW::AES::IsKeyXAvailable(HW::AES::KeySlotID::NCCHSecure1) &&
+                          HW::AES::IsKeyXAvailable(HW::AES::KeySlotID::NCCHSecure2);
+    for (u8 i = 0; i < HW::AES::MaxCommonKeySlot && keys_available; i++) {
         HW::AES::SelectCommonKeyIndex(i);
         if (!HW::AES::IsNormalKeyAvailable(HW::AES::KeySlotID::TicketCommonKey)) {
             keys_available = false;
@@ -337,6 +338,10 @@ void ConfigureSystem::ReadSystemSettings() {
     country_code = cfg->GetCountryCode();
     ui->combo_country->setCurrentIndex(ui->combo_country->findData(country_code));
 
+    // set whether system setup is needed
+    system_setup = cfg->IsSystemSetupNeeded();
+    ui->toggle_system_setup->setChecked(system_setup);
+
     // set the console id
     u64 console_id = cfg->GetConsoleUniqueId();
     ui->label_console_id->setText(
@@ -387,6 +392,13 @@ void ConfigureSystem::ApplyConfiguration() {
         u8 new_country = static_cast<u8>(ui->combo_country->currentData().toInt());
         if (country_code != new_country) {
             cfg->SetCountryCode(new_country);
+            modified = true;
+        }
+
+        // apply whether system setup is needed
+        bool new_system_setup = static_cast<u8>(ui->toggle_system_setup->isChecked());
+        if (system_setup != new_system_setup) {
+            cfg->SetSystemSetupNeeded(new_system_setup);
             modified = true;
         }
 
@@ -523,6 +535,7 @@ void ConfigureSystem::SetupPerGameUI() {
     ui->label_init_time_offset->setVisible(false);
     ui->edit_init_time_offset_days->setVisible(false);
     ui->edit_init_time_offset_time->setVisible(false);
+    ui->toggle_system_setup->setVisible(false);
     ui->button_regenerate_console_id->setVisible(false);
     // Apps can change the state of the plugin loader, so plugins load
     // to a chainloaded app with specific parameters. Don't allow
