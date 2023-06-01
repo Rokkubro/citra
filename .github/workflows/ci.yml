@@ -28,7 +28,7 @@ jobs:
         image: ["linux-appimage", "linux-fresh", "linux-frozen", "linux-mingw"]
     container:
       image: citraemu/build-environments:${{ matrix.image }}
-      options: -u 0
+      options: -u 1001
     steps:
       - uses: actions/checkout@v3
         with:
@@ -40,10 +40,6 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.image }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.image }}-
-      - name: Set Swap Space
-        uses: Rokkubro/set-swap-space@run-as-root
-        with:
-          swap-size-gb: 6
       - name: Build
         run: ./.ci/${{ matrix.image }}/docker.sh
         env:
