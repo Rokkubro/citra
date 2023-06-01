@@ -154,7 +154,7 @@ jobs:
         uses: al-cheb/configure-pagefile-action@v1.2
         with:
           minimum-size: 2GB
-          maximum-size: 8GB
+          maximum-size: 6GB
       - name: Build
         run: ./.ci/windows-msvc/build.sh
         shell: bash
