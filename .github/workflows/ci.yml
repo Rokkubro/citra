@@ -41,7 +41,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.image }}-
       - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
+        uses: Rokkubro/set-swap-space@master
         with:
           swap-size-gb: 6
       - name: Build
