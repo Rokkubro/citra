@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     container: 
       image: citraemu/build-environments:linux-clang-format
-      options: -u 0
+      options: -u 1001
     steps:
       - uses: actions/checkout@v3
         with: 
@@ -28,7 +28,7 @@ jobs:
         image: ["linux-appimage", "linux-fresh", "linux-frozen", "linux-mingw"]
     container:
       image: citraemu/build-environments:${{ matrix.image }}
-      options: -u 1001
+      options: -u 0
     steps:
       - uses: actions/checkout@v3
         with:
