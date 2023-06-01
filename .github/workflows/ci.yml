@@ -40,6 +40,10 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.image }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.image }}-
+      - name: Set Swap Space
+        uses: pierotofy/set-swap-space@master
+        with:
+          swap-size-gb: 6
       - name: Build
         run: ./.ci/${{ matrix.image }}/docker.sh
         env:
