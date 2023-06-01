@@ -40,10 +40,8 @@ jobs:
           key: ${{ runner.os }}-${{ matrix.image }}-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-${{ matrix.image }}-
-      - name: Install sudo package
-        run: apt update && apt install sudo
       - name: Set Swap Space
-        uses: pierotofy/set-swap-space@master
+        uses: Rokkubro/set-swap-space@run-as-root
         with:
           swap-size-gb: 6
       - name: Build
