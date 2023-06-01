@@ -27,7 +27,7 @@ jobs:
       matrix:
         image: ["linux-fresh"]
     container:
-      image: citraemu/build-environments:${{ matrix.image }}
+      image: rokkubro/build-environments:${{ matrix.image }}
       options: -u 1001
     steps:
       - uses: actions/checkout@v3
