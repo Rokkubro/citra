@@ -89,81 +89,89 @@ struct NsDataEntry {
 constexpr u8 task_id_size = 8;
 constexpr u32 files_to_read = 100;
 
-enum NsDataHeaderInfoType : u8 {
+enum class NsDataHeaderInfoType : u8 {
     PROGRAM_ID,
     UNKNOWN,
     DATATYPE,
     PAYLOAD_SIZE,
     NS_DATA_ID,
     VERSION,
-    EVERYTHING
+    EVERYTHING,
 };
 
-enum TaskStatus : u8 { TASK_SUCCESS = 0, TASK_RUNNING = 2, TASK_NOT_STARTED = 5, TASK_FAILED = 7 };
+enum class TaskStatus : u8 {
+    SUCCESS = 0,
+    RUNNING = 2,
+    NOT_STARTED = 5,
+    FAILED = 7,
+};
 
-constexpr u16 interval_id = 0x03;
-constexpr u16 duration_id = 0x04;
-constexpr u16 url_id = 0x07;
+enum class PropertyID : u16 {
+    INTERVAL = 0x03,
+    DURATION = 0x04,
+    URL = 0x07,
+    HEADERS = 0x0D,
+    CERTID = 0x0E,
+    CERTIDLIST = 0x0F,
+    LOADCERT = 0x10,
+    LOADROOTCERT = 0x11,
+    TOTALTASKS = 0x35,
+    TASKIDLIST = 0x36,
+};
+
 constexpr size_t url_size = 0x200;
-constexpr u16 headers_id = 0x0D;
 constexpr size_t headers_size = 0x360;
-constexpr u16 certid_id = 0x0E;
-constexpr u16 certidlist_id = 0x0F;
 constexpr size_t certidlist_size = 3;
-constexpr u16 loadcert_id = 0x10;
-constexpr u16 loadrootcert_id = 0x11;
-constexpr u16 totaltasks_id = 0x35;
-constexpr u16 taskidlist_id = 0x36;
 constexpr size_t taskidlist_size = 0x400;
 
 struct BossTaskProperties {
     std::future<bool> download_task;
     bool task_result;
     u32 times_checked;
-    std::map<u16, std::any> props{
-        {0x00, u8()},
-        {0x01, u8()},
-        {0x02, u32()},
+    std::map<PropertyID, std::any> props{
+        {static_cast<PropertyID>(0x00), u8()},
+        {static_cast<PropertyID>(0x01), u8()},
+        {static_cast<PropertyID>(0x02), u32()},
         // interval
-        {interval_id, u32()},
+        {PropertyID::INTERVAL, u32()},
         // duration
-        {duration_id, u32()},
-        {0x05, u8()},
-        {0x06, u8()},
+        {PropertyID::DURATION, u32()},
+        {static_cast<PropertyID>(0x05), u8()},
+        {static_cast<PropertyID>(0x06), u8()},
         // url
-        {url_id, std::vector<u8>(url_size)},
-        {0x08, u32()},
-        {0x09, u8()},
-        {0x0A, std::vector<u8>(0x100)},
-        {0x0B, std::vector<u8>(0x200)},
-        {0x0C, u32()},
+        {PropertyID::URL, std::vector<u8>(url_size)},
+        {static_cast<PropertyID>(0x08), u32()},
+        {static_cast<PropertyID>(0x09), u8()},
+        {static_cast<PropertyID>(0x0A), std::vector<u8>(0x100)},
+        {static_cast<PropertyID>(0x0B), std::vector<u8>(0x200)},
+        {static_cast<PropertyID>(0x0C), u32()},
         // headers
-        {headers_id, std::vector<u8>(headers_size)},
+        {PropertyID::HEADERS, std::vector<u8>(headers_size)},
         // certid
-        {certid_id, u32()},
+        {PropertyID::CERTID, u32()},
         // certidlist
-        {certidlist_id, std::vector<u32>(certidlist_size)},
+        {PropertyID::CERTIDLIST, std::vector<u32>(certidlist_size)},
         // loadcert (bool)
-        {loadcert_id, u8()},
+        {PropertyID::LOADCERT, u8()},
         // loadrootcert (bool)
-        {loadrootcert_id, u8()},
-        {0x12, u8()},
-        {0x13, u32()},
-        {0x14, u32()},
-        {0x15, std::vector<u8>(0x40)},
-        {0x16, u32()},
-        {0x18, u8()},
-        {0x19, u8()},
-        {0x1A, u8()},
-        {0x1B, u32()},
-        {0x1C, u32()},
+        {PropertyID::LOADROOTCERT, u8()},
+        {static_cast<PropertyID>(0x12), u8()},
+        {static_cast<PropertyID>(0x13), u32()},
+        {static_cast<PropertyID>(0x14), u32()},
+        {static_cast<PropertyID>(0x15), std::vector<u8>(0x40)},
+        {static_cast<PropertyID>(0x16), u32()},
+        {static_cast<PropertyID>(0x18), u8()},
+        {static_cast<PropertyID>(0x19), u8()},
+        {static_cast<PropertyID>(0x1A), u8()},
+        {static_cast<PropertyID>(0x1B), u32()},
+        {static_cast<PropertyID>(0x1C), u32()},
         // totaltasks
-        {totaltasks_id, u16()},
+        {PropertyID::TOTALTASKS, u16()},
         // taskidlist
-        {taskidlist_id, std::vector<u8>(taskidlist_size)},
-        {0x3B, u32()},
-        {0x3E, std::vector<u8>(0x200)},
-        {0x3F, u8()},
+        {PropertyID::TASKIDLIST, std::vector<u8>(taskidlist_size)},
+        {static_cast<PropertyID>(0x3B), u32()},
+        {static_cast<PropertyID>(0x3E), std::vector<u8>(0x200)},
+        {static_cast<PropertyID>(0x3F), u8()},
     };
 };
 
@@ -1128,7 +1136,8 @@ public:
         u32 GetBossExtDataFiles(std::vector<FileSys::Entry>& boss_files);
         u16 GetOutputEntries(u32 filter, u32 max_entries, Kernel::MappedBuffer& buffer);
         bool GetNsDataEntryFromID(u32 ns_data_id, NsDataEntry& entry);
-        std::pair<u8, u32> GetTaskStatusAndDuration(std::string task_id, bool wait_on_result);
+        std::pair<TaskStatus, u32> GetTaskStatusAndDuration(std::string task_id,
+                                                            bool wait_on_result);
 
         template <class Archive>
         void serialize(Archive& ar, const unsigned int) {
