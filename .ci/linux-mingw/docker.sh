@@ -17,7 +17,7 @@ echo 'Prepare binaries...'
 cd ..
 mkdir package
 
-QT_PLATFORM_DLL_PATH='/usr/x86_64-w64-mingw32/lib/qt6/plugins/platforms/'
+QT_PLATFORM_DLL_PATH='/usr/x86_64-w64-mingw32/share/qt6/plugins/platforms/'
 find build/ -name "citra*.exe" -exec cp {} 'package' \;
 
 # copy Qt plugins
