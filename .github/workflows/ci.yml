@@ -27,7 +27,7 @@ jobs:
       matrix:
         image: ["linux-appimage", "linux-fresh", "linux-frozen", "linux-mingw"]
     container:
-      image: citraemu/build-environments:${{ matrix.image }}
+      image: rokkubro/build-environments:${{ matrix.image }}
       options: -u 1001
     steps:
       - uses: actions/checkout@v3
@@ -150,6 +150,11 @@ jobs:
         shell: bash
       - name: Set up MSVC
         uses: ilammy/msvc-dev-cmd@v1
+      - name: Increase Pagefile
+        uses: al-cheb/configure-pagefile-action@v1.2
+        with:
+          minimum-size: 2GB
+          maximum-size: 6GB
       - name: Setup Vulkan SDK
         uses: humbletim/setup-vulkan-sdk@v1.2.0
         with:
