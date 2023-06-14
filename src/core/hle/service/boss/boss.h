@@ -4,9 +4,9 @@
 
 #pragma once
 
-#include <any>
 #include <future>
 #include <memory>
+#include <variant>
 #include <boost/serialization/shared_ptr.hpp>
 #include <core/loader/loader.h>
 #include "core/file_sys/archive_backend.h"
@@ -128,7 +128,7 @@ struct BossTaskProperties {
     std::future<bool> download_task;
     bool task_result;
     u32 times_checked;
-    std::map<PropertyID, std::any> props{
+    std::map<PropertyID, std::variant<u8, u16, u32, std::vector<u8>, std::vector<u32>>> props{
         {static_cast<PropertyID>(0x00), u8()},
         {static_cast<PropertyID>(0x01), u8()},
         {static_cast<PropertyID>(0x02), u32()},

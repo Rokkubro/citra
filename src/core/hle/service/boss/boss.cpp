@@ -54,6 +54,9 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
         program_id = programID;
     }
 
+    LOG_DEBUG(Service_BOSS, "programID={:#018X}", program_id);
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
+
     const std::string& nand_directory = FileUtil::GetUserPath(FileUtil::UserPath::NANDDir);
     FileSys::ArchiveFactory_SystemSaveData systemsavedata_factory(nand_directory);
 
@@ -73,90 +76,85 @@ void Module::Interface::InitializeSession(Kernel::HLERequestContext& ctx) {
         if (create_archive_result.Succeeded()) {
             boss_system_save_data_archive = std::move(create_archive_result).Unwrap();
         } else {
-            boss_system_save_data_archive = NULLPTR;
+            LOG_ERROR(Service_BOSS, "could not open boss savedata");
+            rb.Push(1);
+            return;
         }
     } else if (archive_result.Succeeded()) {
         boss_system_save_data_archive = std::move(archive_result).Unwrap();
     } else {
-        boss_system_save_data_archive = NULLPTR;
-    }
-    if (boss_system_save_data_archive == NULLPTR) {
         LOG_ERROR(Service_BOSS, "could not open boss savedata");
+        rb.Push(1);
+        return;
+    }
+    FileSys::Path boss_a_path("/BOSS_A.db");
+    FileSys::Mode open_mode = {};
+    open_mode.read_flag.Assign(1);
+    auto boss_a_result = boss_system_save_data_archive->OpenFile(boss_a_path, open_mode);
 
-    } else {
-        FileSys::Path boss_a_path("/BOSS_A.db");
-        FileSys::Mode open_mode = {};
-        open_mode.read_flag.Assign(1);
-        auto boss_a_result = boss_system_save_data_archive->OpenFile(boss_a_path, open_mode);
-
-        // Read the file if it already exists
-        if (boss_a_result.Succeeded()) {
-            auto boss_a = std::move(boss_a_result).Unwrap();
-            const u64 boss_a_size = boss_a->GetSize();
-            if (boss_a_size > boss_save_header_size &&
-                ((boss_a_size - boss_save_header_size) % boss_a_entry_size) == 0) {
-                u64 num_entries = (boss_a_size - boss_save_header_size) / boss_a_entry_size;
-                for (u64 i = 0; i < num_entries; i++) {
-                    u64 entry_offset = i * boss_a_entry_size + boss_save_header_size;
-                    u64 prog_id;
-                    boss_a->Read(entry_offset, sizeof(prog_id), reinterpret_cast<u8*>(&prog_id));
-                    LOG_DEBUG(Service_BOSS, "id in entry {} is {:#018X}", i, prog_id);
-                }
+    // Read the file if it already exists
+    if (boss_a_result.Succeeded()) {
+        auto boss_a = std::move(boss_a_result).Unwrap();
+        const u64 boss_a_size = boss_a->GetSize();
+        if (boss_a_size > boss_save_header_size &&
+            ((boss_a_size - boss_save_header_size) % boss_a_entry_size) == 0) {
+            u64 num_entries = (boss_a_size - boss_save_header_size) / boss_a_entry_size;
+            for (u64 i = 0; i < num_entries; i++) {
+                u64 entry_offset = i * boss_a_entry_size + boss_save_header_size;
+                u64 prog_id;
+                boss_a->Read(entry_offset, sizeof(prog_id), reinterpret_cast<u8*>(&prog_id));
+                LOG_DEBUG(Service_BOSS, "id in entry {} is {:#018X}", i, prog_id);
             }
         }
-        FileSys::Path boss_sv_path("/BOSS_SV.db");
+    }
+    FileSys::Path boss_sv_path("/BOSS_SV.db");
 
-        auto boss_sv_result = boss_system_save_data_archive->OpenFile(boss_sv_path, open_mode);
+    auto boss_sv_result = boss_system_save_data_archive->OpenFile(boss_sv_path, open_mode);
 
-        FileSys::Path boss_ss_path("/BOSS_SS.db");
+    FileSys::Path boss_ss_path("/BOSS_SS.db");
 
-        auto boss_ss_result = boss_system_save_data_archive->OpenFile(boss_ss_path, open_mode);
+    auto boss_ss_result = boss_system_save_data_archive->OpenFile(boss_ss_path, open_mode);
 
-        // Read the files if they already exists
-        if (boss_sv_result.Succeeded() && boss_ss_result.Succeeded()) {
-            auto boss_sv = std::move(boss_sv_result).Unwrap();
-            auto boss_ss = std::move(boss_ss_result).Unwrap();
-            if (boss_sv->GetSize() > boss_save_header_size &&
-                ((boss_sv->GetSize() - boss_save_header_size) % boss_s_entry_size) == 0 &&
-                boss_sv->GetSize() == boss_ss->GetSize()) {
-                u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
-                for (u64 i = 0; i < num_entries; i++) {
-                    u64 entry_offset = i * boss_s_entry_size + boss_save_header_size;
+    // Read the files if they already exists
+    if (boss_sv_result.Succeeded() && boss_ss_result.Succeeded()) {
+        auto boss_sv = std::move(boss_sv_result).Unwrap();
+        auto boss_ss = std::move(boss_ss_result).Unwrap();
+        if (boss_sv->GetSize() > boss_save_header_size &&
+            ((boss_sv->GetSize() - boss_save_header_size) % boss_s_entry_size) == 0 &&
+            boss_sv->GetSize() == boss_ss->GetSize()) {
+            u64 num_entries = (boss_sv->GetSize() - boss_save_header_size) / boss_s_entry_size;
+            for (u64 i = 0; i < num_entries; i++) {
+                u64 entry_offset = i * boss_s_entry_size + boss_save_header_size;
 
-                    u64 prog_id;
-                    boss_sv->Read(entry_offset + boss_s_prog_id_offset, sizeof(prog_id),
-                                  reinterpret_cast<u8*>(&prog_id));
-                    LOG_DEBUG(Service_BOSS, "id sv in entry {} is {:#018X}", i, prog_id);
+                u64 prog_id;
+                boss_sv->Read(entry_offset + boss_s_prog_id_offset, sizeof(prog_id),
+                              reinterpret_cast<u8*>(&prog_id));
+                LOG_DEBUG(Service_BOSS, "id sv in entry {} is {:#018X}", i, prog_id);
 
-                    std::string task_id(task_id_size, 0);
-                    boss_sv->Read(entry_offset + boss_s_task_id_offset, task_id_size,
-                                  reinterpret_cast<u8*>(task_id.data()));
-                    LOG_DEBUG(Service_BOSS, "task id in entry {} is {}", i, task_id);
+                std::string task_id(task_id_size, 0);
+                boss_sv->Read(entry_offset + boss_s_task_id_offset, task_id_size,
+                              reinterpret_cast<u8*>(task_id.data()));
+                LOG_DEBUG(Service_BOSS, "task id in entry {} is {}", i, task_id);
 
-                    std::vector<u8> url(url_size);
-                    boss_ss->Read(entry_offset + boss_s_url_offset, url_size, url.data());
-                    LOG_DEBUG(Service_BOSS, "url for task {} is {}", task_id,
-                              std::string_view(reinterpret_cast<char*>(url.data()), url.size()));
+                std::vector<u8> url(url_size);
+                boss_ss->Read(entry_offset + boss_s_url_offset, url_size, url.data());
+                LOG_DEBUG(Service_BOSS, "url for task {} is {}", task_id,
+                          std::string_view(reinterpret_cast<char*>(url.data()), url.size()));
 
-                    if (prog_id == program_id) {
-                        LOG_DEBUG(Service_BOSS, "storing for this session");
-                        cur_props.props[PropertyID::URL] = url;
-                        if (task_id_list.contains(task_id)) {
-                            LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
-                            task_id_list.erase(task_id);
-                        }
-                        task_id_list.emplace(task_id, std::move(cur_props));
-                        cur_props = BossTaskProperties();
+                if (prog_id == program_id) {
+                    LOG_DEBUG(Service_BOSS, "storing for this session");
+                    cur_props.props[PropertyID::URL] = url;
+                    if (task_id_list.contains(task_id)) {
+                        LOG_WARNING(Service_BOSS, "Task id already in list, will be replaced");
+                        task_id_list.erase(task_id);
                     }
+                    task_id_list.emplace(task_id, std::move(cur_props));
+                    cur_props = BossTaskProperties();
                 }
             }
         }
     }
-
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
-
-    LOG_DEBUG(Service_BOSS, "programID={:#018X}", programID);
 }
 
 void Module::Interface::SetStorageInfo(Kernel::HLERequestContext& ctx) {
@@ -330,12 +328,12 @@ void Module::Interface::ReconfigureTask(Kernel::HLERequestContext& ctx) {
 void Module::Interface::GetTaskIdList(Kernel::HLERequestContext& ctx) {
     IPC::RequestParser rp(ctx, 0x0E, 0, 0);
 
-    u16 task_id_list_size = static_cast<u16>(task_id_list.size());
-    cur_props.props[PropertyID::TOTALTASKS] = task_id_list_size;
-    LOG_DEBUG(Service_BOSS, "Prepared total_tasks = {}", task_id_list_size);
+    u16 num_task_ids = static_cast<u16>(task_id_list.size());
+    cur_props.props[PropertyID::TOTALTASKS] = num_task_ids;
+    LOG_DEBUG(Service_BOSS, "Prepared total_tasks = {}", num_task_ids);
 
     u16 num_returned_task_ids = 0;
-    std::vector<u8> task_ids(taskidlist_size);
+    std::vector<std::array<u8, task_id_size>> task_ids(taskidlist_size / task_id_size);
 
     for (const auto& iter : task_id_list) {
         std::string cur_task_id = iter.first;
@@ -344,14 +342,18 @@ void Module::Interface::GetTaskIdList(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "task id {} too long or would write past buffer",
                         cur_task_id);
         } else {
-            std::memcpy(task_ids.data() + (num_returned_task_ids * task_id_size),
-                        cur_task_id.data(), task_id_size);
+            std::memcpy(task_ids[num_returned_task_ids].data(), cur_task_id.data(), task_id_size);
             num_returned_task_ids++;
-            LOG_DEBUG(Service_BOSS, "wrote task id {}", cur_task_id);
+            LOG_TRACE(Service_BOSS, "wrote task id {}", cur_task_id);
         }
     }
-    cur_props.props[PropertyID::TASKIDLIST] = task_ids;
-    LOG_DEBUG(Service_BOSS, "wrote out {} task ids", num_returned_task_ids);
+    std::vector<u8>* task_list_prop;
+    if ((task_list_prop = std::get_if<std::vector<u8>>(&cur_props.props[PropertyID::TASKIDLIST])) &&
+        task_list_prop->size() == taskidlist_size) {
+
+        std::memcpy(task_list_prop->data(), task_ids.data(), taskidlist_size);
+        LOG_DEBUG(Service_BOSS, "wrote out {} task ids", num_returned_task_ids);
+    }
 
     IPC::RequestBuilder rb = rp.MakeBuilder(1, 0);
     rb.Push(RESULT_SUCCESS);
@@ -615,9 +617,7 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
     std::string scheme = url_parsed.scheme();
     std::string host = url_parsed.host();
     std::string path = url_parsed.path();
-    LOG_DEBUG(Service_BOSS, "Scheme is {}", scheme);
-    LOG_DEBUG(Service_BOSS, "host is {}", host);
-    LOG_DEBUG(Service_BOSS, "path is {}", path);
+    LOG_DEBUG(Service_BOSS, "Scheme is {}, host is {}, path is {}", scheme, host, path);
     std::unique_ptr<httplib::Client> client =
         std::make_unique<httplib::Client>(scheme + "://" + host);
     httplib::Request request{
@@ -661,21 +661,18 @@ bool Module::Interface::DownloadBossDataFromURL(std::string url, std::string fil
                     u32(payload_header.boss));
         return false;
     }
-    LOG_DEBUG(Service_BOSS, "Magic boss number is {}", u32(payload_header.boss));
 
     if (payload_header.magic != boss_payload_magic) {
         LOG_WARNING(Service_BOSS, "Magic number mismatch, expecting {}, found {}",
                     boss_payload_magic, u32(payload_header.magic));
         return false;
     }
-    LOG_DEBUG(Service_BOSS, "Magic number is {:#010X}", u32(payload_header.magic));
 
     if (payload_header.filesize != response.body.size()) {
         LOG_WARNING(Service_BOSS, "Expecting response to be size {}, actual size is {}",
                     static_cast<u32>(payload_header.filesize), response.body.size());
         return false;
     }
-    LOG_DEBUG(Service_BOSS, "Filesize is {:#010X}", u32(payload_header.filesize));
 
     FileSys::ArchiveFactory_ExtSaveData boss_extdata_archive_factory(
         FileUtil::GetUserPath(FileUtil::UserPath::SDMCDir), false, true);
@@ -856,11 +853,19 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
+
+    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
+
     u32 result = 1;
 
     if (!cur_props.props.contains(property_id)) {
         LOG_ERROR(Service_BOSS, "Unknown property with id {:#06X}", property_id);
-    } else if (cur_props.props[property_id].type().hash_code() == typeid(u8).hash_code()) {
+        rb.Push(result);
+        rb.PushMappedBuffer(buffer);
+        return;
+    }
+    if (std::get_if<u8>(&cur_props.props[property_id])) {
         if (size != sizeof(u8)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u8), size);
@@ -870,7 +875,8 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         cur_props.props[property_id] = cur_prop;
         LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#04X}", property_id, cur_prop);
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() == typeid(u16).hash_code()) {
+    }
+    if (std::get_if<u16>(&cur_props.props[property_id])) {
         if (size != sizeof(u16)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u16), size);
@@ -880,7 +886,8 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         cur_props.props[property_id] = cur_prop;
         LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#06X}", property_id, cur_prop);
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() == typeid(u32).hash_code()) {
+    }
+    if (std::get_if<u32>(&cur_props.props[property_id])) {
         if (size != sizeof(u32)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u32), size);
@@ -890,21 +897,20 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         cur_props.props[property_id] = cur_prop;
         LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {:#010X}", property_id, cur_prop);
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() ==
-               typeid(std::vector<u8>).hash_code()) {
-        if (size != std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size()) {
+    }
+    if (const auto* old_prop = std::get_if<std::vector<u8>>(&cur_props.props[property_id])) {
+        if (size != old_prop->size()) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
-                      property_id,
-                      std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size(), size);
+                      property_id, old_prop->size(), size);
         }
         std::vector<u8> cur_prop(size);
         buffer.Read(cur_prop.data(), 0, size);
         cur_props.props[property_id] = cur_prop;
         LOG_DEBUG(Service_BOSS, "Read property {:#06X}, value {}", property_id,
-                  std::string(reinterpret_cast<char*>(cur_prop.data())));
+                  std::string(reinterpret_cast<char*>(cur_prop.data()), size));
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() ==
-               typeid(std::vector<u32>).hash_code()) {
+    }
+    if (std::get_if<std::vector<u32>>(&cur_props.props[property_id])) {
         // There is only one property with this type atm, it's an array of 3 32 bit ints
         if (size != certidlist_size * sizeof(u32)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
@@ -916,17 +922,10 @@ void Module::Interface::SendProperty(Kernel::HLERequestContext& ctx) {
         LOG_DEBUG(Service_BOSS, "Read property {:#06X}, values {:#010X},{:#010X},{:#010X}",
                   property_id, cur_prop[0], cur_prop[1], cur_prop[2]);
         result = 0;
-    } else {
-        // This should never happen?
-        LOG_ERROR(Service_BOSS, "Property {:#06X} has invalid type {}", property_id,
-                  cur_props.props[property_id].type().name());
     }
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(1, 2);
     rb.Push(result);
     rb.PushMappedBuffer(buffer);
-
-    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
 }
 
 void Module::Interface::SendPropertyHandle(Kernel::HLERequestContext& ctx) {
@@ -946,75 +945,70 @@ void Module::Interface::ReceiveProperty(Kernel::HLERequestContext& ctx) {
     const u32 size = rp.Pop<u32>();
     auto& buffer = rp.PopMappedBuffer();
 
+    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
+    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
+
     u32 result = 1;
 
     if (!cur_props.props.contains(property_id)) {
         LOG_ERROR(Service_BOSS, "Unknown property with id {:#06X}", property_id);
-    } else if (cur_props.props[property_id].type().hash_code() == typeid(u8).hash_code()) {
+        rb.Push(result);
+        rb.Push<u32>(size); // The size of the property per id, not how much data
+        rb.PushMappedBuffer(buffer);
+        return;
+    }
+    if (const auto* cur_prop = std::get_if<u8>(&cur_props.props[property_id])) {
         if (size != sizeof(u8)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u8), size);
         }
-        u8& cur_prop = std::any_cast<u8&>(cur_props.props[property_id]);
-        buffer.Write(&cur_prop, 0, size);
-        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#04X}", property_id, cur_prop);
+        buffer.Write(cur_prop, 0, size);
+        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#04X}", property_id, *cur_prop);
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() == typeid(u16).hash_code()) {
+    }
+    if (const auto* cur_prop = std::get_if<u16>(&cur_props.props[property_id])) {
         if (size != sizeof(u16)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u16), size);
         }
-        u16& cur_prop = std::any_cast<u16&>(cur_props.props[property_id]);
-        buffer.Write(&cur_prop, 0, size);
-        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#06X}", property_id, cur_prop);
+        buffer.Write(cur_prop, 0, size);
+        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#06X}", property_id, *cur_prop);
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() == typeid(u32).hash_code()) {
+    }
+    if (const auto* cur_prop = std::get_if<u32>(&cur_props.props[property_id])) {
         if (size != sizeof(u32)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, sizeof(u32), size);
         }
-        u32& cur_prop = std::any_cast<u32&>(cur_props.props[property_id]);
-        buffer.Write(&cur_prop, 0, size);
-        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#010X}", property_id, cur_prop);
+        buffer.Write(cur_prop, 0, size);
+        LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {:#010X}", property_id, *cur_prop);
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() ==
-               typeid(std::vector<u8>).hash_code()) {
-        if (size != std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size()) {
+    }
+    if (const auto* cur_prop = std::get_if<std::vector<u8>>(&cur_props.props[property_id])) {
+        if (size != cur_prop->size()) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
-                      property_id,
-                      std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).size(), size);
+                      property_id, cur_prop->size(), size);
         }
-        buffer.Write(std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).data(), 0, size);
+        buffer.Write(cur_prop->data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, value {}", property_id,
-                  std::string(reinterpret_cast<char*>(
-                      std::any_cast<std::vector<u8>&>(cur_props.props[property_id]).data())));
+                  std::string(reinterpret_cast<const char*>(cur_prop->data()), size));
         result = 0;
-    } else if (cur_props.props[property_id].type().hash_code() ==
-               typeid(std::vector<u32>).hash_code()) {
+    }
+    if (const auto* cur_prop = std::get_if<std::vector<u32>>(&cur_props.props[property_id])) {
         // There is only one property with this type atm
         if (size != certidlist_size * sizeof(u32)) {
             LOG_ERROR(Service_BOSS, "Unexpected size of property {:#06X}, was expecting {}, got {}",
                       property_id, certidlist_size * sizeof(u32), size);
         }
-        buffer.Write(std::any_cast<std::vector<u32>&>(cur_props.props[property_id]).data(), 0,
-                     size);
+        buffer.Write(cur_prop->data(), 0, size);
         LOG_DEBUG(Service_BOSS, "Wrote property {:#06X}, values {:#010X},{:#010X},{:#010X}",
-                  property_id, std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[0],
-                  std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[1],
-                  std::any_cast<std::vector<u32>&>(cur_props.props[property_id])[2]);
+                  property_id, (*cur_prop)[0], (*cur_prop)[1], (*cur_prop)[2]);
         result = 0;
-    } else {
-        // This should never happen?
-        LOG_ERROR(Service_BOSS, "Property {:#06X} has invalid type {}", property_id,
-                  cur_props.props[property_id].type().name());
     }
 
-    IPC::RequestBuilder rb = rp.MakeBuilder(2, 2);
     rb.Push(result);
     rb.Push<u32>(size); // The size of the property per id, not how much data
     rb.PushMappedBuffer(buffer);
-
-    LOG_DEBUG(Service_BOSS, "property_id={:#06X}, size={:#010X}", property_id, size);
 }
 
 void Module::Interface::UpdateTaskInterval(Kernel::HLERequestContext& ctx) {
@@ -1116,16 +1110,14 @@ void Module::Interface::StartTask(Kernel::HLERequestContext& ctx) {
             LOG_WARNING(Service_BOSS, "Task Id {} not found", task_id);
         } else {
             task_id_list[task_id].times_checked = 0;
+            std::vector<u8>* url_prop;
             if (!task_id_list[task_id].props.contains(PropertyID::URL) ||
-                task_id_list[task_id].props[PropertyID::URL].type().hash_code() !=
-                    typeid(std::vector<u8>).hash_code() ||
-                std::any_cast<std::vector<u8>&>(task_id_list[task_id].props[PropertyID::URL])
-                        .size() != url_size) {
+                !(url_prop = std::get_if<std::vector<u8>>(
+                      &task_id_list[task_id].props[PropertyID::URL])) ||
+                url_prop->size() != url_size) {
                 LOG_ERROR(Service_BOSS, "URL property is invalid");
             } else {
-                char* url_pointer = reinterpret_cast<char*>(
-                    std::any_cast<std::vector<u8>&>(task_id_list[task_id].props[PropertyID::URL])
-                        .data());
+                char* url_pointer = reinterpret_cast<char*>(url_prop->data());
                 std::string url(url_pointer, strnlen(url_pointer, url_size));
                 std::string file_name(task_id.c_str(), strnlen(task_id.c_str(), task_id.size()));
                 task_id_list[task_id].download_task =
@@ -1192,10 +1184,10 @@ std::pair<TaskStatus, u32> Module::Interface::GetTaskStatusAndDuration(std::stri
     task_id_list[task_id].times_checked++;
 
     // Get the duration from the task if available
+    u32* dur_prop;
     if (task_id_list[task_id].props.contains(PropertyID::DURATION) &&
-        task_id_list[task_id].props[PropertyID::DURATION].type().hash_code() ==
-            typeid(u32).hash_code()) {
-        duration = std::any_cast<u32&>(task_id_list[task_id].props[PropertyID::DURATION]);
+        (dur_prop = std::get_if<u32>(&task_id_list[task_id].props[PropertyID::DURATION]))) {
+        duration = *dur_prop;
     }
 
     if (task_id_list[task_id].download_task.valid()) {
