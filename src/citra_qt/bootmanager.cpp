@@ -587,8 +587,8 @@ bool GRenderWindow::event(QEvent* event) {
 
 void GRenderWindow::focusOutEvent(QFocusEvent* event) {
     QWidget::focusOutEvent(event);
-    if (auto* keyboard_p = InputCommon::GetKeyboard()) {
-        keyboard_p->ReleaseAllKeys();
+    if (auto* keyboard = InputCommon::GetKeyboard(); keyboard) {
+        keyboard->ReleaseAllKeys();
     }
     has_focus = false;
 }
