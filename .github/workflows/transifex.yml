@@ -14,6 +14,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 0
+          token: ${{ secrets.ALT_GITHUB_TOKEN }}
       - name: Update Translation
         run: ./.ci/transifex.sh
         env:
