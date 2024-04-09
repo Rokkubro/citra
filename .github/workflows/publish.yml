@@ -17,7 +17,7 @@ on:
 jobs:
   nightly:
     runs-on: ubuntu-latest
-    if: ${{ github.event.inputs.nightly != 'false' && github.repository == 'Rokkubro/citra' }}
+    if: ${{ github.event.inputs.nightly != 'false' && github.repository == 'Rokkubro/citra-publish' }}
     steps:
       # this checkout is required to make sure the GitHub Actions scripts are available
       - uses: actions/checkout@v4
